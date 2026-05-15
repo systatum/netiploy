@@ -1,0 +1,13 @@
+services:
+  # for emulating S3
+  localstack:
+    build:
+      context: ./localstack
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./localstack/ready.sh:/etc/localstack/init/ready.d/ready.sh
+      - ./tmp/localstack:/persisted-data
+    environment:
+      - PERSIST_DEFAULT=0
+      - PERSIST_S3=1

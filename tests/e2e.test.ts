@@ -1,0 +1,196 @@
+import { describe, test, expect, beforeAll, afterAll } from "bun:test"
+import { S3Client } from "bun"
+import { mkdir, writeFile, rm } from "node:fs/promises"
+import { join } from "node:path"
+import { deploy } from "../src/core"
+import { DeployStrategy, SubfolderMode } from "../src/core"
+
+const LOCALSTACK_ENDPOINT = "http://localhost:4566"
+const TEST_BUCKET = "netiploy-test"
+const TEST_TOKEN = {
+  accessKeyId: "test",
+  secretAccessKey: "test",
+} // localstack accepts any credentials
+
+const client = new S3Client({
+  endpoint: LOCALSTACK_ENDPOINT,
+  accessKeyId: "test",
+  secretAccessKey: "test",
+  bucket: TEST_BUCKET,
+  region: "us-east-1",
+})
+
+async function ensureBucket(): Promise<void> {
+  try {
+    await client.write(".init", "")
+    await client.delete(".init")
+  } catch {
+    // Bucket may already have the sentinel; that's fine.
+  }
+}
+
+/** Remove every object inside a prefix (best-effort, for cleanup). */
+async function purgePrefix(prefix: string): Promise<void> {
+  const response = await client.list({ prefix })
+  for (const obj of response.contents ?? []) {
+    await client.delete(obj.key)
+  }
+}
+
+/** Build a temporary local directory filled with sample files. */
+async function buildFixtureDir(name: string): Promise<string> {
+  const dir = join(import.meta.dir, ".tmp", name)
+  await mkdir(join(dir, "assets"), { recursive: true })
+  await writeFile(join(dir, "index.html"), "<html><body>Hello</body></html>")
+  await writeFile(join(dir, "style.css"), "body { margin: 0; }")
+  await writeFile(join(dir, "assets", "logo.svg"), "<svg/>")
+  return dir
+}
+
+// ---------------------------------------------------------------------------
+
+describe("deploy", () => {
+  let fixtureDir: string
+
+  beforeAll(async () => {
+    await ensureBucket()
+    fixtureDir = await buildFixtureDir("site")
+  })
+
+  afterAll(async () => {
+    await purgePrefix("site/")
+    await rm(join(import.meta.dir, ".tmp"), { recursive: true, force: true })
+  })
+
+  test("uploads all files to the bucket root (subfolder=none)", async () => {
+    const result = await deploy({
+      token: TEST_TOKEN,
+      endpoint: LOCALSTACK_ENDPOINT,
+      worker: 3,
+      source: fixtureDir,
+      destination: {
+        provider: "r2",
+        bucket: TEST_BUCKET,
+        prefix: "",
+      },
+      subfolder: SubfolderMode.None,
+      strategy: DeployStrategy.Overwrite,
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.bucket).toBe(TEST_BUCKET)
+
+    // Verify the files actually exist in S3
+    const listed = await client.list({ prefix: "site/" })
+    const keys = (listed.contents ?? []).map((o) => o.key)
+    expect(keys).toContain("site/index.html")
+    expect(keys).toContain("site/style.css")
+    expect(keys).toContain("site/assets/logo.svg")
+  })
+
+  test("overwrite strategy deletes existing objects before uploading", async () => {
+    // Plant a stale file that should be removed
+    await client.write("site/stale.txt", "old content")
+
+    const result = await deploy({
+      token: TEST_TOKEN,
+      endpoint: LOCALSTACK_ENDPOINT,
+      worker: 2,
+      source: fixtureDir,
+      destination: {
+        provider: "r2",
+        bucket: TEST_BUCKET,
+        prefix: "",
+      },
+      subfolder: SubfolderMode.None,
+      strategy: DeployStrategy.Overwrite,
+    })
+
+    expect(result.ok).toBe(true)
+    const listed = await client.list({ prefix: "site/" })
+    const keys = (listed.contents ?? []).map((o) => o.key)
+    expect(keys).not.toContain("site/stale.txt")
+  })
+
+  test("subfolder=generate appends an 8-char nanoid to the prefix", async () => {
+    const result = await deploy({
+      token: TEST_TOKEN,
+      endpoint: LOCALSTACK_ENDPOINT,
+      worker: 2,
+      source: fixtureDir,
+      destination: {
+        provider: "r2",
+        bucket: TEST_BUCKET,
+        prefix: "previews",
+      },
+      subfolder: SubfolderMode.Generate,
+      strategy: DeployStrategy.Overwrite,
+    })
+
+    expect(result.ok).toBe(true)
+    // deployed prefix should be previews/<8chars>/site
+    const prefix = result.deployedPrefix ?? ""
+    expect(prefix).toMatch(/^previews\/.{8}\/site$/)
+
+    // Cleanup
+    await purgePrefix(prefix + "/")
+  })
+
+  test("subfolder=hash:<word> produces a deterministic xxh32 hex subfolder", async () => {
+    const word = "pr-123"
+
+    const result1 = await deploy({
+      token: TEST_TOKEN,
+      endpoint: LOCALSTACK_ENDPOINT,
+      worker: 2,
+      source: fixtureDir,
+      destination: {
+        provider: "r2",
+        bucket: TEST_BUCKET,
+        prefix: "prs",
+      },
+      subfolder: `hash:${word}`,
+      strategy: DeployStrategy.Overwrite,
+    })
+    const result2 = await deploy({
+      token: TEST_TOKEN,
+      endpoint: LOCALSTACK_ENDPOINT,
+      worker: 2,
+      source: fixtureDir,
+      destination: {
+        provider: "r2",
+        bucket: TEST_BUCKET,
+        prefix: "prs",
+      },
+      subfolder: `hash:${word}`,
+      strategy: DeployStrategy.Overwrite,
+    })
+
+    expect(result1.ok).toBe(true)
+    expect(result2.ok).toBe(true)
+    // Both deployments must land in the same prefix
+    expect(result1.deployedPrefix).toBe(result2.deployedPrefix)
+
+    // Cleanup
+    await purgePrefix((result1.deployedPrefix ?? "") + "/")
+  })
+
+  test("returns FileNotFound error for non-existent source dir", async () => {
+    const result = await deploy({
+      token: TEST_TOKEN,
+      endpoint: LOCALSTACK_ENDPOINT,
+      worker: 2,
+      source: "/tmp/does-not-exist-netiploy",
+      destination: {
+        provider: "r2",
+        bucket: TEST_BUCKET,
+        prefix: "",
+      },
+      subfolder: SubfolderMode.None,
+      strategy: DeployStrategy.Overwrite,
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.errCode).toBe(110) // ErrorCode.FileNotFound
+  })
+})

@@ -1,15 +1,5 @@
-# netiploy
+# Netiploy
 
-To install dependencies:
+**Netiploy** is a Bun-optimized CLI tool for deploying static files to Cloudflare R2 (or any S3-compatible storage) without paying for Netlify.
 
-```bash
-bun install
-```
-
-To run:
-
-```bash
-bun run index.ts
-```
-
-This project was created using `bun init` in bun v1.3.14. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+TODO
