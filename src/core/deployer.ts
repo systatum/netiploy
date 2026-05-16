@@ -1,12 +1,13 @@
 import { S3Client } from "bun"
 import { stat } from "fs/promises"
 import { nanoid } from "nanoid"
-import { ErrorCode } from "../error"
-import { xxh32 } from "../utils/xxh32"
 import { basename } from "path"
-import { OverwriteStrategy, type DeployRunner } from "./runner"
 import { ClientProvider, type ClientConfig, type ResolvedClientConfig } from "."
+import { ErrorCode } from "../error"
 import { printInfo } from "../utils"
+import { isUnconnectableError } from "../utils/checker"
+import { xxh32 } from "../utils/xxh32"
+import { OverwriteStrategy, type DeployRunner } from "./runner"
 
 export const SubfolderMode = {
   None: "none",
@@ -160,26 +161,11 @@ export async function deploy(args: DeployArgs): Promise<DeployResult> {
     }
   } catch (err) {
     const msg = String(err)
-
-    // Classify network/auth errors without fragile substring matching.
-    // Bun's S3Client surfaces these as specific error names or HTTP status codes.
-    const isAuthOrNetworkError =
-      (err instanceof Error &&
-        (err.name === "S3Error" ||
-          err.name === "NetworkError" ||
-          err.name === "FetchError")) ||
-      msg.includes("ECONNREFUSED") ||
-      msg.includes("ECONNRESET") ||
-      msg.includes("ETIMEDOUT") ||
-      msg.includes("InvalidAccessKeyId") ||
-      msg.includes("InvalidClientTokenId") ||
-      msg.includes("SignatureDoesNotMatch")
+    const isUnc = isUnconnectableError(err)
 
     return {
       ok: false,
-      errCode: isAuthOrNetworkError
-        ? ErrorCode.Unconnectable
-        : ErrorCode.InternalError,
+      errCode: isUnc ? ErrorCode.Unconnectable : ErrorCode.InternalError,
       message: msg,
     }
   }

@@ -1,9 +1,9 @@
 import type { S3Client } from "bun"
 import { readdir } from "fs/promises"
 import { join, relative, sep } from "path"
-import type { UploadWorkerConfig, UploadTask } from "../worker"
-import { createSpinner } from "../utils"
 import { type ResolvedClientConfig } from "."
+import { createSpinner } from "../utils"
+import type { UploadTask, UploadWorkerConfig } from "../worker"
 
 type TaskResult =
   | { ok: true; key: string }
