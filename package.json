@@ -5,7 +5,7 @@
   "type": "module",
   "private": true,
   "bin": {
-    "netiploy": "./src/cli.ts"
+    "netiploy": "./build/netiploy"
   },
   "devDependencies": {
     "@types/bun": "latest",
