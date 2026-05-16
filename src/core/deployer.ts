@@ -5,6 +5,7 @@ import { ErrorCode } from "../error"
 import { xxh32 } from "../utils/xxh32"
 import { basename } from "path"
 import { OverwriteStrategy, type DeployRunner } from "./runner"
+import { ClientProvider, type ClientConfig, type ResolvedClientConfig } from "."
 
 export const SubfolderMode = {
   None: "none",
@@ -22,55 +23,54 @@ export const DeployStrategy = {
 export type DeployStrategy =
   (typeof DeployStrategy)[keyof typeof DeployStrategy]
 
-export const NetiployProvider = {
-  R2: "r2",
-  S3: "s3",
-} as const
-
-export type NetiployProvider =
-  (typeof NetiployProvider)[keyof typeof NetiployProvider]
-
-export interface NetiployToken {
-  accessKeyId: string
-  secretAccessKey: string
-}
-
-export interface NetiployDestination {
-  provider: NetiployProvider
-  bucket: string
-  prefix: string
-}
-
 export interface DeployArgs {
-  token: NetiployToken
-  endpoint: string
-  region?: string
-  workerCount: number
-  source: string
-  destination: NetiployDestination
-  subfolder: SubfolderMode
   strategy: DeployStrategy
+  source: string
+  subfolder: SubfolderMode
+  worker: number
+  clientConfig: ClientConfig
 }
 
 export interface DeployResult {
   ok: boolean
   errCode?: ErrorCode
   message?: string
-  bucket?: string
-  deployedPrefix?: string
+  publicUrl?: string
 }
 
-function resolveRegion(endpoint: string): string {
-  try {
-    const host = new URL(endpoint).hostname.toLowerCase()
-    if (host.endsWith(".r2.cloudflarestorage.com")) {
-      return "auto"
-    }
-  } catch {
-    // Keep a sensible default if endpoint is malformed.
+function resolveConfig(args: DeployArgs): ResolvedClientConfig {
+  const sourceDirName = basename(args.source)
+  const resolvedSubfolder = resolveSubfolder(args.subfolder)
+
+  const prefix = [args.clientConfig.prefix, resolvedSubfolder, sourceDirName]
+    .filter(Boolean)
+    .join("/")
+
+  let endpoint = args.clientConfig.endpoint
+  let region = args.clientConfig.region
+  let accountId = args.clientConfig.accountId ?? "default-account"
+
+  switch (args.clientConfig.provider) {
+    case ClientProvider.R2:
+      endpoint = `https://${accountId}.r2.cloudflarestorage.com/`
+      region = "auto"
+      break
+    case ClientProvider.S3:
+      // For S3, assume LocalStack on localhost port 4566
+      endpoint = "http://localhost:4566"
+      region = "us-east-1"
+      break
+    default:
+      throw new Error(`Unsupported provider: ${args.clientConfig.provider}`)
   }
 
-  return "us-east-1"
+  return {
+    ...args.clientConfig,
+    accountId,
+    endpoint,
+    region,
+    prefix,
+  }
 }
 
 function resolveSubfolder(subfolder: SubfolderMode): string {
@@ -97,9 +97,20 @@ function resolveStrategy(strategy: string): DeployRunner {
   }
 }
 
+function buildPublicUrl(config: ResolvedClientConfig): string {
+  const { provider, bucket, prefix, endpoint } = config
+  const pathSegment = prefix ? `/${prefix}` : ""
+
+  switch (provider) {
+    case ClientProvider.R2:
+      return `https://${bucket}.r2.dev${pathSegment}`
+    default:
+      return `${endpoint}/${bucket}${pathSegment}`
+  }
+}
+
 export async function deploy(args: DeployArgs): Promise<DeployResult> {
-  const { endpoint, region, source, destination, subfolder, strategy, token } =
-    args
+  const { source, strategy } = args
 
   // Confirm input directory exists
   try {
@@ -119,41 +130,34 @@ export async function deploy(args: DeployArgs): Promise<DeployResult> {
     }
   }
 
-  const effectiveRegion = region ?? resolveRegion(endpoint)
-  const sourceDirName = basename(source)
-  const resolvedSubfolder = resolveSubfolder(subfolder)
-  const effectivePrefix = [destination.prefix, resolvedSubfolder, sourceDirName]
-    .filter(Boolean)
-    .join("/")
-  const effectiveDest = <NetiployDestination>{
-    provider: destination.provider,
-    bucket: destination.bucket,
-    prefix: effectivePrefix,
-  }
-
-  const client = new S3Client({
-    endpoint,
-    region: effectiveRegion,
-    accessKeyId: token.accessKeyId,
-    secretAccessKey: token.secretAccessKey,
-    bucket: effectiveDest.bucket,
-  })
+  const resolvedConfig = resolveConfig(args)
 
   try {
+    const client = new S3Client({
+      endpoint: resolvedConfig.endpoint,
+      region: resolvedConfig.region,
+      accessKeyId: resolvedConfig.token.accessKeyId,
+      secretAccessKey: resolvedConfig.token.secretAccessKey,
+      bucket: resolvedConfig.bucket,
+    })
+
+    await client.list({ maxKeys: 0 }) // warm up the client to fail fast on auth/network errors
+
     const runner = resolveStrategy(strategy)
-    await runner.execute(client, {
-      ...args,
-      destination: effectiveDest,
-      region: effectiveRegion,
+    await runner.execute({
+      client,
+      source,
+      clientConfig: resolvedConfig,
+      workerCount: args.worker,
     })
 
     return {
       ok: true,
-      bucket: effectiveDest.bucket,
-      deployedPrefix: effectivePrefix,
+      publicUrl: buildPublicUrl(resolvedConfig),
     }
   } catch (err) {
-    const msg = err instanceof Error ? `${err.message}` : String(err)
+    const msg = String(err)
+
     // Classify network/auth errors without fragile substring matching.
     // Bun's S3Client surfaces these as specific error names or HTTP status codes.
     const isAuthOrNetworkError =

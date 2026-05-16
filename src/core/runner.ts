@@ -3,7 +3,7 @@ import { readdir } from "fs/promises"
 import { join, relative, sep } from "path"
 import type { UploadTask, UploadWorkerConfig } from "./worker"
 import { createSpinner, formatDurationMs } from "../utils"
-import { type DeployArgs } from "."
+import { type ResolvedClientConfig } from "."
 
 type TaskResult =
   | { ok: true; key: string }
@@ -169,26 +169,37 @@ async function collectFiles(dir: string): Promise<string[]> {
   return files
 }
 
+export interface RunnerContext {
+  client: S3Client
+  source: string
+  clientConfig: ResolvedClientConfig
+  workerCount?: number
+}
+
 export interface DeployRunner {
-  execute(client: S3Client, args: DeployArgs): Promise<void>
+  execute(ctx: RunnerContext): Promise<void>
 }
 
 export class OverwriteStrategy implements DeployRunner {
-  async execute(client: S3Client, args: DeployArgs): Promise<void> {
-    const prefixForDelete = args.destination.prefix
-      ? `${args.destination.prefix}/`
+  async execute(ctx: RunnerContext): Promise<void> {
+    const prefixForDelete = ctx.clientConfig.prefix
+      ? `${ctx.clientConfig.prefix}/`
       : ""
     if (prefixForDelete) {
-      await deleteAllObjects(client, args.destination.bucket, prefixForDelete)
+      await deleteAllObjects(
+        ctx.client,
+        ctx.clientConfig.bucket,
+        prefixForDelete,
+      )
     }
 
-    const files = await collectFiles(args.source)
+    const files = await collectFiles(ctx.source)
 
     const uploadTasks: UploadTask[] = files.map((absolutePath, id) => {
-      const relativePath = relative(args.source, absolutePath)
+      const relativePath = relative(ctx.source, absolutePath)
       const s3RelPath = relativePath.split(sep).join("/")
-      const s3Key = args.destination.prefix
-        ? `${args.destination.prefix}/${s3RelPath}`
+      const s3Key = ctx.clientConfig.prefix
+        ? `${ctx.clientConfig.prefix}/${s3RelPath}`
         : s3RelPath
 
       return {
@@ -200,7 +211,7 @@ export class OverwriteStrategy implements DeployRunner {
 
     const effectiveWorkerCount = Math.max(
       1,
-      Math.min(args.workerCount, uploadTasks.length),
+      Math.min(ctx.workerCount ?? 1, uploadTasks.length),
     )
 
     const spinner = createSpinner(
@@ -211,11 +222,11 @@ export class OverwriteStrategy implements DeployRunner {
       const { completed, failed } = await runUploadWorkers({
         workerCount: effectiveWorkerCount,
         config: {
-          endpoint: args.endpoint,
-          region: args.region!,
-          accessKeyId: args.token.accessKeyId,
-          secretAccessKey: args.token.secretAccessKey,
-          bucket: args.destination.bucket,
+          endpoint: ctx.clientConfig.endpoint,
+          region: ctx.clientConfig.region,
+          accessKeyId: ctx.clientConfig.token.accessKeyId,
+          secretAccessKey: ctx.clientConfig.token.secretAccessKey,
+          bucket: ctx.clientConfig.bucket,
         },
         tasks: uploadTasks,
       })

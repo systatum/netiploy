@@ -5,9 +5,8 @@ import {
   DeployStrategy,
   SubfolderMode,
   ErrorCode,
-  NetiployProvider,
-  type NetiployDestination,
-  type NetiployToken,
+  ClientProvider,
+  type ClientToken,
 } from "./core"
 import { VERSION } from "."
 import { buildErrorMessage } from "./error"
@@ -18,13 +17,11 @@ import {
   formatDurationMs,
   printInfo,
   printError,
-  printWarn,
 } from "./utils"
 
 interface DeployOptions {
-  token?: NetiployToken
-  endpoint?: string
-  region?: string
+  token?: ClientToken
+  accountId?: string
   worker: number
   subfolder: SubfolderMode | string
   strategy: DeployStrategy
@@ -32,7 +29,7 @@ interface DeployOptions {
 
 program
   .name("netiploy")
-  .description("Deploy static files to Cloudflare R2 or S3-compatible storage")
+  .description("Deploy static files to Cloudflare R2 storage")
   .version(`Systatum Netiploy ${VERSION}`, "-v, --version")
   .configureOutput({
     writeErr: (str) => {
@@ -58,21 +55,16 @@ program
           "Token must be in format 'accessKeyId:secretAccessKey'",
         )
       }
-      return <NetiployToken>{
+      return <ClientToken>{
         accessKeyId: value.slice(0, colonIdx),
         secretAccessKey: value.slice(colonIdx + 1),
       }
     },
   )
   .option(
-    "--endpoint <url>",
-    "S3-compatible endpoint URL (e.g. https://<id>.r2.cloudflarestorage.com)",
-    process.env["NETIPLOY_ENDPOINT"] ?? process.env["S3_ENDPOINT"],
-  )
-  .option(
-    "--region <name>",
-    "S3 region (default: auto-detect or us-east-1)",
-    process.env["NETIPLOY_REGION"] ?? process.env["S3_REGION"],
+    "--account-id <id>",
+    "Cloudflare R2 account ID (overrides R2_ACCOUNT_ID)",
+    process.env["R2_ACCOUNT_ID"],
   )
   .option(
     "--worker <n>",
@@ -124,6 +116,10 @@ program
       destinationArgs: string[],
       options: DeployOptions,
     ) => {
+      const { token, strategy, subfolder, worker, accountId } = options
+
+      source = resolve(source)
+
       let destStr: string
       if (destinationArgs.length === 2 && destinationArgs[0] === "to") {
         destStr = destinationArgs[1]!
@@ -149,29 +145,20 @@ program
 
       const [provider, bucket, ...prefixParts] = parts
 
-      const providers = Object.values(NetiployProvider)
-      if (!providers.includes(provider as NetiployProvider)) {
+      const providers = Object.values(ClientProvider)
+      if (!providers.includes(provider as ClientProvider)) {
         throw new InvalidArgumentError(
           `Unsupported provider "${provider}". Supported providers: ${providers.join(", ")}`,
         )
       }
 
-      const destination: NetiployDestination = {
-        provider: provider as NetiployProvider,
-        bucket: bucket!,
-        prefix: prefixParts.join("/"),
-      }
-
-      const { token, endpoint, region, strategy, subfolder, worker } = options
-      const inputDir = resolve(source)
-
       const accessKeyId =
-        token?.accessKeyId ??
-        process.env["NETIPLOY_ACCESS_KEY_ID"] ??
+        token?.accessKeyId ||
+        process.env["NETIPLOY_ACCESS_KEY_ID"] ||
         process.env["S3_ACCESS_KEY_ID"]
       const secretAccessKey =
-        token?.secretAccessKey ??
-        process.env["NETIPLOY_SECRET_ACCESS_KEY"] ??
+        token?.secretAccessKey ||
+        process.env["NETIPLOY_SECRET_ACCESS_KEY"] ||
         process.env["S3_SECRET_ACCESS_KEY"]
 
       if (!accessKeyId || !secretAccessKey) {
@@ -180,49 +167,57 @@ program
         )
       }
 
-      if (!endpoint) {
+      // Validate provider-specific requirements
+      if (provider === ClientProvider.R2) {
+        // Require account ID for R2
+        const resolvedAccountId = accountId || process.env["R2_ACCOUNT_ID"]
+        if (!resolvedAccountId) {
+          throw new InvalidArgumentError(
+            "Missing Cloudflare R2 account ID. Provide via --account-id or R2_ACCOUNT_ID env var.",
+          )
+        }
+      } else if (provider === ClientProvider.S3) {
+        // S3 is allowed (supports LocalStack)
+      } else {
         throw new InvalidArgumentError(
-          "Missing endpoint URL. Provide via --endpoint or environment variables.",
+          `Provider '${provider}' is not supported. Supported: ${Object.values(ClientProvider).join(", ")}`,
         )
+      }
+
+      if (!bucket) {
+        throw new InvalidArgumentError("Bucket name is required in destination")
       }
 
       printInfo(
-        `Deploying ${inputDir} to ${destination.provider}/${destination.bucket}/${destination.prefix}...`,
+        `Deploying ${source} to ${provider}/${bucket}/${prefixParts.join("/")}`,
       )
-
-      // Temporary warning (remove once we fully support S3)
-      if (provider !== NetiployProvider.R2) {
-        printWarn(
-          `Using "${provider}" may not work correctly. Currently, only "r2" provider is fully supported.`,
-        )
-      }
 
       const startedAt = Date.now()
       const result = await deploy({
-        token: token ?? {
-          accessKeyId: accessKeyId,
-          secretAccessKey: secretAccessKey,
+        strategy: strategy as DeployStrategy,
+        source: source,
+        subfolder: subfolder as SubfolderMode,
+        worker: worker,
+        clientConfig: {
+          token: token ?? {
+            accessKeyId: accessKeyId,
+            secretAccessKey: secretAccessKey,
+          },
+          provider: provider as ClientProvider,
+          bucket: bucket,
+          accountId: accountId,
+          prefix: prefixParts.join("/"),
         },
-        endpoint,
-        workerCount: worker,
-        source: inputDir,
-        destination,
-        subfolder: subfolder as Parameters<typeof deploy>[0]["subfolder"],
-        strategy: strategy as Parameters<typeof deploy>[0]["strategy"],
-        region,
       })
+      const deployDuration = Date.now() - startedAt
 
       if (result.ok) {
-        const prefix = result.deployedPrefix ?? ""
         printSummary(
-          `Deployment successful! (${formatDurationMs(Date.now() - startedAt)})`,
+          `Deployment successful! (${formatDurationMs(deployDuration)})`,
         )
-        printMeta("Bucket", result.bucket ?? "")
-        printMeta(
-          "Prefix",
-          [result.bucket ?? "", prefix].filter(Boolean).join("/"),
-        )
+        printMeta("Public URL", result.publicUrl ?? "N/A")
       } else {
+        printSummary(`Deployment failed! (${formatDurationMs(deployDuration)})`)
         throw new Error(result.message ?? "Deployment failed", {
           cause: result.errCode ?? ErrorCode.InternalError,
         })

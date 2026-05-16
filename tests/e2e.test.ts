@@ -2,7 +2,12 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test"
 import { S3Client } from "bun"
 import { mkdir, writeFile, rm } from "node:fs/promises"
 import { join } from "node:path"
-import { deploy, DeployStrategy, SubfolderMode } from "../src/core"
+import {
+  deploy,
+  DeployStrategy,
+  SubfolderMode,
+  ClientProvider,
+} from "../src/core"
 import { ErrorCode } from "../src/error"
 
 const LOCALSTACK_ENDPOINT = "http://localhost:4566"
@@ -64,12 +69,13 @@ describe("deploy", () => {
 
   test("uploads all files to the bucket root (subfolder=none)", async () => {
     const result = await deploy({
-      token: TEST_TOKEN,
-      endpoint: LOCALSTACK_ENDPOINT,
-      workerCount: 3,
+      worker: 3,
       source: fixtureDir,
-      destination: {
-        provider: "r2",
+      clientConfig: {
+        token: TEST_TOKEN,
+        endpoint: LOCALSTACK_ENDPOINT,
+        provider: ClientProvider.S3,
+        region: "us-east-1",
         bucket: TEST_BUCKET,
         prefix: "",
       },
@@ -78,7 +84,7 @@ describe("deploy", () => {
     })
 
     expect(result.ok).toBe(true)
-    expect(result.bucket).toBe(TEST_BUCKET)
+    expect(result.publicUrl).toContain(`/${TEST_BUCKET}/site`)
 
     // Verify the files actually exist in S3
     const listed = await client.list({ prefix: "site/" })
@@ -93,12 +99,13 @@ describe("deploy", () => {
     await client.write("site/stale.txt", "old content")
 
     const result = await deploy({
-      token: TEST_TOKEN,
-      endpoint: LOCALSTACK_ENDPOINT,
-      workerCount: 2,
+      worker: 2,
       source: fixtureDir,
-      destination: {
-        provider: "r2",
+      clientConfig: {
+        token: TEST_TOKEN,
+        endpoint: LOCALSTACK_ENDPOINT,
+        provider: ClientProvider.S3,
+        region: "us-east-1",
         bucket: TEST_BUCKET,
         prefix: "",
       },
@@ -114,12 +121,13 @@ describe("deploy", () => {
 
   test("subfolder=generate appends an 8-char nanoid to the prefix", async () => {
     const result = await deploy({
-      token: TEST_TOKEN,
-      endpoint: LOCALSTACK_ENDPOINT,
-      workerCount: 2,
+      worker: 2,
       source: fixtureDir,
-      destination: {
-        provider: "r2",
+      clientConfig: {
+        token: TEST_TOKEN,
+        endpoint: LOCALSTACK_ENDPOINT,
+        provider: ClientProvider.S3,
+        region: "us-east-1",
         bucket: TEST_BUCKET,
         prefix: "previews",
       },
@@ -128,8 +136,8 @@ describe("deploy", () => {
     })
 
     expect(result.ok).toBe(true)
-    // deployed prefix should be previews/<8chars>/site
-    const prefix = result.deployedPrefix ?? ""
+    const url = result.publicUrl ?? ""
+    const prefix = url.split(`/${TEST_BUCKET}/`)[1] ?? ""
     expect(prefix).toMatch(/^previews\/.{8}\/site$/)
 
     // Cleanup
@@ -140,12 +148,13 @@ describe("deploy", () => {
     const word = "pr-123"
 
     const result1 = await deploy({
-      token: TEST_TOKEN,
-      endpoint: LOCALSTACK_ENDPOINT,
-      workerCount: 2,
+      worker: 2,
       source: fixtureDir,
-      destination: {
-        provider: "r2",
+      clientConfig: {
+        token: TEST_TOKEN,
+        endpoint: LOCALSTACK_ENDPOINT,
+        provider: ClientProvider.S3,
+        region: "us-east-1",
         bucket: TEST_BUCKET,
         prefix: "prs",
       },
@@ -153,12 +162,13 @@ describe("deploy", () => {
       strategy: DeployStrategy.Overwrite,
     })
     const result2 = await deploy({
-      token: TEST_TOKEN,
-      endpoint: LOCALSTACK_ENDPOINT,
-      workerCount: 2,
+      worker: 2,
       source: fixtureDir,
-      destination: {
-        provider: "r2",
+      clientConfig: {
+        token: TEST_TOKEN,
+        endpoint: LOCALSTACK_ENDPOINT,
+        provider: ClientProvider.S3,
+        region: "us-east-1",
         bucket: TEST_BUCKET,
         prefix: "prs",
       },
@@ -169,20 +179,23 @@ describe("deploy", () => {
     expect(result1.ok).toBe(true)
     expect(result2.ok).toBe(true)
     // Both deployments must land in the same prefix
-    expect(result1.deployedPrefix).toBe(result2.deployedPrefix)
+    const prefix1 = (result1.publicUrl ?? "").split(`/${TEST_BUCKET}/`)[1] ?? ""
+    const prefix2 = (result2.publicUrl ?? "").split(`/${TEST_BUCKET}/`)[1] ?? ""
+    expect(prefix1).toBe(prefix2)
 
     // Cleanup
-    await purgePrefix((result1.deployedPrefix ?? "") + "/")
+    await purgePrefix(prefix1 + "/")
   })
 
   test("returns FileNotFound error for non-existent source dir", async () => {
     const result = await deploy({
-      token: TEST_TOKEN,
-      endpoint: LOCALSTACK_ENDPOINT,
-      workerCount: 2,
+      worker: 2,
       source: "/tmp/does-not-exist-netiploy",
-      destination: {
-        provider: "r2",
+      clientConfig: {
+        token: TEST_TOKEN,
+        endpoint: LOCALSTACK_ENDPOINT,
+        provider: ClientProvider.S3,
+        region: "us-east-1",
         bucket: TEST_BUCKET,
         prefix: "",
       },
