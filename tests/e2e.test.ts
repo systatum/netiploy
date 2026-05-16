@@ -1,13 +1,10 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test"
 import { S3Client } from "bun"
-import { mkdir, writeFile, rm } from "node:fs/promises"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { mkdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import {
-  deploy,
-  DeployStrategy,
-  SubfolderMode,
-  ClientProvider,
-} from "../src/core"
+import { deploy, DeployStrategy } from "../src/deployer"
+import { ClientProvider } from "../src/deployer/config"
+import { SubfolderMode } from "../src/deployer/files"
 import { ErrorCode } from "../src/error"
 
 const LOCALSTACK_ENDPOINT = "http://localhost:4566"

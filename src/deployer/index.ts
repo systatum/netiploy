@@ -1,22 +1,24 @@
 import { S3Client } from "bun"
 import { stat } from "fs/promises"
-import { nanoid } from "nanoid"
-import { basename } from "path"
-import { ClientProvider, type ClientConfig, type ResolvedClientConfig } from "."
+import { SubfolderMode } from "../deployer/files"
 import { ErrorCode } from "../error"
 import { printInfo } from "../utils"
 import { isUnconnectableError } from "../utils/checker"
-import { xxh32 } from "../utils/xxh32"
-import { OverwriteStrategy, type DeployRunner } from "./runner"
+import {
+  ClientProvider,
+  resolveConfig,
+  type ClientConfig,
+  type ResolvedClientConfig,
+} from "./config"
+import { type DeployRunner } from "./strategy"
+import { OverwriteStrategy } from "./strategy/OverwriteStrategy"
 
-export const SubfolderMode = {
-  None: "none",
-  Generate: "generate",
-} as const
-
-export type SubfolderMode =
-  | (typeof SubfolderMode)[keyof typeof SubfolderMode]
-  | `hash:${string}`
+export interface RunnerContext {
+  client: S3Client
+  source: string
+  clientConfig: ResolvedClientConfig
+  workerCount?: number
+}
 
 export const DeployStrategy = {
   Overwrite: "overwrite", // clears the destination prefix before uploading
@@ -38,57 +40,6 @@ export interface DeployResult {
   errCode?: ErrorCode
   message?: string
   publicUrl?: string
-}
-
-// Resolves the nullable properties of ClientConfig and applies provider-specific defaults
-function resolveConfig(args: DeployArgs): ResolvedClientConfig {
-  const sourceDirName = basename(args.source)
-  const resolvedSubfolder = resolveSubfolder(args.subfolder)
-
-  const prefix = [args.clientConfig.prefix, resolvedSubfolder, sourceDirName]
-    .filter(Boolean)
-    .join("/")
-
-  let endpoint = args.clientConfig.endpoint
-  let region = args.clientConfig.region
-  let accountId = args.clientConfig.accountId ?? "default-account"
-
-  switch (args.clientConfig.provider) {
-    case ClientProvider.R2:
-      endpoint = `https://${accountId}.r2.cloudflarestorage.com/`
-      region = "auto"
-      break
-    case ClientProvider.S3:
-      // For S3, assume LocalStack on localhost port 4566
-      endpoint = "http://localhost:4566"
-      region = "us-east-1"
-      break
-    default:
-      throw new Error(`Unsupported provider: ${args.clientConfig.provider}`)
-  }
-
-  return {
-    ...args.clientConfig,
-    accountId,
-    endpoint,
-    region,
-    prefix,
-  }
-}
-
-function resolveSubfolder(subfolder: SubfolderMode): string {
-  switch (subfolder) {
-    case SubfolderMode.None:
-      return ""
-    case SubfolderMode.Generate:
-      return nanoid(8)
-    default:
-      if (subfolder.startsWith("hash:")) {
-        const word = subfolder.slice(5)
-        return xxh32(word).toString(16)
-      }
-      return ""
-  }
 }
 
 function resolveStrategy(strategy: string): DeployRunner {
