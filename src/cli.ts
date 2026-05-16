@@ -1,23 +1,30 @@
-import {
-  CommanderError,
-  InvalidArgumentError,
-  Option,
-  program,
-} from "commander"
+import { InvalidArgumentError, Option, program } from "commander"
 import { resolve } from "node:path"
 import {
   deploy,
   DeployStrategy,
   SubfolderMode,
   ErrorCode,
-  type S3Destination,
-  type S3Token,
+  NetiployProvider,
+  type NetiployDestination,
+  type NetiployToken,
 } from "./core"
 import { VERSION } from "."
+import { buildErrorMessage } from "./error"
+import {
+  printBanner,
+  printMeta,
+  printSummary,
+  formatDurationMs,
+  printInfo,
+  printError,
+  printWarn,
+} from "./utils"
 
 interface DeployOptions {
-  token?: S3Token
+  token?: NetiployToken
   endpoint?: string
+  region?: string
   worker: number
   subfolder: SubfolderMode | string
   strategy: DeployStrategy
@@ -29,7 +36,7 @@ program
   .version(`Systatum Netiploy ${VERSION}`, "-v, --version")
   .configureOutput({
     outputError: (str, write) => {
-      write(`ERR${ErrorCode.CmdLineError} - ${str}`)
+      write(buildErrorMessage(ErrorCode.CmdLineError, str))
     },
   })
 
@@ -51,7 +58,7 @@ program
           "Token must be in format 'accessKeyId:secretAccessKey'",
         )
       }
-      return <S3Token>{
+      return <NetiployToken>{
         accessKeyId: value.slice(0, colonIdx),
         secretAccessKey: value.slice(colonIdx + 1),
       }
@@ -61,6 +68,11 @@ program
     "--endpoint <url>",
     "S3-compatible endpoint URL (e.g. https://<id>.r2.cloudflarestorage.com)",
     process.env["NETIPLOY_ENDPOINT"] ?? process.env["S3_ENDPOINT"],
+  )
+  .option(
+    "--region <name>",
+    "S3 region (default: auto-detect or us-east-1)",
+    process.env["NETIPLOY_REGION"] ?? process.env["S3_REGION"],
   )
   .option(
     "--worker <n>",
@@ -119,36 +131,38 @@ program
         destStr = destinationArgs[0]!
       } else if (destinationArgs.length === 0) {
         throw new InvalidArgumentError(
-          `Missing destination. Usage: netiploy deploy <source> [to] r2/<bucket>[/<prefix>]`,
+          `Missing destination. Usage: netiploy deploy <source> [to] <provider>/<bucket>[/<prefix>]`,
         )
       } else {
         throw new InvalidArgumentError(
           `Unexpected arguments: ${destinationArgs.join(" ")}. ` +
-            `Usage: netiploy deploy <source> [to] r2/<bucket>[/<prefix>]`,
-        )
-      }
-
-      if (!destStr.startsWith("r2/")) {
-        throw new InvalidArgumentError(
-          `Destination must start with "r2/", got "${destStr}"`,
+            `Usage: netiploy deploy <source> [to] <provider>/<bucket>[/<prefix>]`,
         )
       }
 
       const parts = destStr.split("/")
-      if (parts.length < 2 || parts[0] !== "r2") {
+      if (parts.length < 2) {
         throw new InvalidArgumentError(
-          "Destination must be in format 'r2/{bucket}' or 'r2/{bucket}/{prefix}'",
+          "Destination must be in format '{provider}/{bucket}' or '{provider}/{bucket}/{prefix}'",
         )
       }
 
       const [provider, bucket, ...prefixParts] = parts
-      const destination: S3Destination = {
-        provider: provider,
+
+      const providers = Object.values(NetiployProvider)
+      if (!providers.includes(provider as NetiployProvider)) {
+        throw new InvalidArgumentError(
+          `Unsupported provider "${provider}". Supported providers: ${providers.join(", ")}`,
+        )
+      }
+
+      const destination: NetiployDestination = {
+        provider: provider as NetiployProvider,
         bucket: bucket!,
         prefix: prefixParts.join("/"),
       }
 
-      const { token, endpoint, strategy, subfolder, worker } = options
+      const { token, endpoint, region, strategy, subfolder, worker } = options
       const inputDir = resolve(source)
 
       const accessKeyId =
@@ -172,37 +186,46 @@ program
         )
       }
 
-      console.log(
-        `Deploying ${inputDir} → ${destination.provider}/${destination.bucket}/${destination.prefix}`,
+      printInfo(
+        `Deploying ${inputDir} to ${destination.provider}/${destination.bucket}/${destination.prefix}...`,
       )
-      if (subfolder !== SubfolderMode.None) {
-        console.log(`  Subfolder mode: ${subfolder}`)
-      }
-      console.log(`  Strategy: ${strategy}, Workers: ${worker}`)
 
+      // Temporary warning (remove once we fully support S3)
+      if (provider !== NetiployProvider.R2) {
+        printWarn(
+          `Using "${provider}" may not work correctly. Currently, only "r2" provider is fully supported.`,
+        )
+      }
+
+      const startedAt = Date.now()
       const result = await deploy({
         token: token ?? {
           accessKeyId: accessKeyId,
           secretAccessKey: secretAccessKey,
         },
         endpoint,
-        worker,
+        workerCount: worker,
         source: inputDir,
         destination,
         subfolder: subfolder as Parameters<typeof deploy>[0]["subfolder"],
         strategy: strategy as Parameters<typeof deploy>[0]["strategy"],
+        region,
       })
 
       if (result.ok) {
         const prefix = result.deployedPrefix ?? ""
-        console.log(`Deployment successful!`)
-        console.log(`Deployed prefix : ${result.bucket}/${prefix}`)
-      } else {
-        const code = result.errCode ?? ErrorCode.InternalError
-        console.error(
-          `ERR${code} - ${result.message ? result.message : "Deployment failed"}`,
+        printSummary(
+          `Deployment successful! (${formatDurationMs(Date.now() - startedAt)})`,
         )
-        process.exit(code)
+        printMeta("Bucket", result.bucket ?? "")
+        printMeta(
+          "Prefix",
+          [result.bucket ?? "", prefix].filter(Boolean).join("/"),
+        )
+      } else {
+        throw new Error(result.message ?? "Deployment failed", {
+          cause: result.errCode ?? ErrorCode.InternalError,
+        })
       }
     },
   )
@@ -211,7 +234,14 @@ program.on("command:*", (unknownCmds: string[]) => {
   throw new InvalidArgumentError(`Unknown command: ${unknownCmds.join(" ")}`)
 })
 
-program.parseAsync().catch((err: InvalidArgumentError) => {
-  console.error(`ERR${ErrorCode.CmdLineError} - ${err.message}`)
-  process.exit(err.exitCode)
+printBanner(`Netiploy v${VERSION}`)
+
+program.parseAsync().catch((err: Error & { cause?: ErrorCode }) => {
+  if (err instanceof InvalidArgumentError) {
+    printError(buildErrorMessage(ErrorCode.CmdLineError, err.message))
+    process.exit(err.exitCode)
+  }
+  const code = err.cause ?? ErrorCode.InternalError
+  printError(buildErrorMessage(code, err.message))
+  process.exit(code)
 })

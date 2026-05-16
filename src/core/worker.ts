@@ -1,6 +1,6 @@
 import { S3Client } from "bun"
 
-interface UploadWorkerConfig {
+export interface UploadWorkerConfig {
   endpoint: string
   region: string
   accessKeyId: string
@@ -8,7 +8,7 @@ interface UploadWorkerConfig {
   bucket: string
 }
 
-interface UploadTask {
+export interface UploadTask {
   id: number
   absolutePath: string
   s3Key: string
@@ -17,61 +17,50 @@ interface UploadTask {
 type WorkerIncomingMessage =
   | { type: "configure"; config: UploadWorkerConfig }
   | { type: "upload"; task: UploadTask }
-  | { type: "shutdown" }
 
-interface WorkerRuntime {
-  onmessage: ((event: MessageEvent<WorkerIncomingMessage>) => void) | null
-  postMessage: (message: unknown) => void
-  close: () => void
+declare var self: Worker
+
+function postFail(error: Error | string | unknown, path: string): void {
+  error = error instanceof Error ? error.message : String(error)
+  self.postMessage({
+    type: "failed",
+    path,
+    error,
+  })
 }
-
-const runtime = globalThis as unknown as WorkerRuntime
 
 let client: S3Client | null = null
 
-runtime.onmessage = async (event: MessageEvent<WorkerIncomingMessage>) => {
+self.onmessage = async (event: MessageEvent<WorkerIncomingMessage>) => {
   const message = event.data
 
-  if (message.type === "configure") {
-    client = new S3Client({
-      endpoint: message.config.endpoint,
-      region: message.config.region,
-      accessKeyId: message.config.accessKeyId,
-      secretAccessKey: message.config.secretAccessKey,
-      bucket: message.config.bucket,
-    })
-    runtime.postMessage({ type: "ready" })
-    return
-  }
-
-  if (message.type === "upload") {
-    if (!client) {
-      runtime.postMessage({
-        type: "failed",
-        path: message.task.absolutePath,
-        error: "Worker not configured",
+  switch (message.type) {
+    case "configure":
+      client = new S3Client({
+        endpoint: message.config.endpoint,
+        region: message.config.region,
+        accessKeyId: message.config.accessKeyId,
+        secretAccessKey: message.config.secretAccessKey,
+        bucket: message.config.bucket,
       })
-      return
-    }
+      self.postMessage({ type: "ready" })
+      break
+    case "upload":
+      if (!client) {
+        postFail("Worker not configured", message.task.absolutePath)
+        break
+      }
 
-    try {
-      const localFile = Bun.file(message.task.absolutePath)
-      const remoteFile = client.file(message.task.s3Key, {
-        type: localFile.type,
-      })
-      await remoteFile.write(localFile)
-      runtime.postMessage({ type: "uploaded", key: message.task.s3Key })
-    } catch (err) {
-      runtime.postMessage({
-        type: "failed",
-        path: message.task.absolutePath,
-        error: err instanceof Error ? err.message : String(err),
-      })
-    }
-    return
-  }
-
-  if (message.type === "shutdown") {
-    runtime.close()
+      try {
+        const localFile = Bun.file(message.task.absolutePath)
+        const remoteFile = client.file(message.task.s3Key, {
+          type: localFile.type,
+        })
+        await remoteFile.write(localFile)
+        self.postMessage({ type: "uploaded", key: message.task.s3Key })
+      } catch (err) {
+        postFail(err, message.task.s3Key)
+      }
+      break
   }
 }

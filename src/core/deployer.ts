@@ -1,14 +1,14 @@
 import { S3Client } from "bun"
-import { readdir, stat } from "fs/promises"
+import { stat } from "fs/promises"
 import { nanoid } from "nanoid"
-import { ErrorCode } from "./error"
-import { xxh32 } from "./xxh32"
-import { basename, join, relative, sep } from "path"
+import { ErrorCode } from "../error"
+import { xxh32 } from "../utils/xxh32"
+import { basename } from "path"
+import { OverwriteStrategy, type DeployRunner } from "./runner"
 
 export const SubfolderMode = {
   None: "none",
   Generate: "generate",
-  HashPrefix: "hash",
 } as const
 
 export type SubfolderMode =
@@ -22,224 +22,32 @@ export const DeployStrategy = {
 export type DeployStrategy =
   (typeof DeployStrategy)[keyof typeof DeployStrategy]
 
-interface UploadTask {
-  id: number
-  absolutePath: string
-  s3Key: string
-}
+export const NetiployProvider = {
+  R2: "r2",
+  S3: "s3",
+} as const
 
-interface UploadWorkerConfig {
-  endpoint: string
-  region: string
-  accessKeyId: string
-  secretAccessKey: string
-  bucket: string
-}
+export type NetiployProvider =
+  (typeof NetiployProvider)[keyof typeof NetiployProvider]
 
-interface UploadOutcome {
-  completed: number
-  failed: number
-}
-
-async function runUploadWorkers(args: {
-  workerCount: number
-  config: UploadWorkerConfig
-  tasks: UploadTask[]
-}): Promise<UploadOutcome> {
-  const { workerCount, config, tasks } = args
-  if (tasks.length === 0) {
-    return { completed: 0, failed: 0 }
-  }
-
-  const effectiveWorkerCount = Math.max(1, Math.min(workerCount, tasks.length))
-  const workerUrl = new URL("./worker.ts", import.meta.url).href
-  const workers: Worker[] = []
-
-  let completed = 0
-  let failed = 0
-  let nextTaskIndex = 0
-  let pending = 0
-  let settled = false
-
-  return await new Promise<UploadOutcome>((resolve, reject) => {
-    const finishIfDone = () => {
-      if (settled) {
-        return
-      }
-
-      const noMoreTasks = nextTaskIndex >= tasks.length
-      if (!noMoreTasks || pending > 0) {
-        return
-      }
-
-      settled = true
-      for (const worker of workers) {
-        worker.postMessage({ type: "shutdown" })
-        worker.terminate()
-      }
-      resolve({ completed, failed })
-    }
-
-    const fail = (message: string) => {
-      if (settled) {
-        return
-      }
-      settled = true
-      for (const worker of workers) {
-        try {
-          worker.postMessage({ type: "shutdown" })
-          worker.terminate()
-        } catch {
-          // no-op
-        }
-      }
-      reject(new Error(message))
-    }
-
-    const assignTask = (worker: Worker) => {
-      if (nextTaskIndex >= tasks.length) {
-        finishIfDone()
-        return
-      }
-
-      const task = tasks[nextTaskIndex++]
-      pending++
-      worker.postMessage({ type: "upload", task })
-    }
-
-    for (let i = 0; i < effectiveWorkerCount; i++) {
-      const worker = new Worker(workerUrl, { type: "module" })
-      workers.push(worker)
-
-      worker.onmessage = (event: MessageEvent<unknown>) => {
-        const message = event.data as
-          | { type: "ready" }
-          | { type: "uploaded"; key: string }
-          | { type: "failed"; path: string; error: string }
-
-        if (message.type === "ready") {
-          assignTask(worker)
-          return
-        }
-
-        if (message.type === "uploaded") {
-          pending--
-          completed++
-          console.log(`  ✓ ${message.key}`)
-          assignTask(worker)
-          finishIfDone()
-          return
-        }
-
-        if (message.type === "failed") {
-          pending--
-          failed++
-          console.error(`  ✗ ${message.path}: ${message.error}`)
-          assignTask(worker)
-          finishIfDone()
-        }
-      }
-
-      worker.onerror = (event: ErrorEvent) => {
-        fail(`Upload worker crashed: ${event.message}`)
-      }
-
-      worker.postMessage({ type: "configure", config })
-    }
-  })
-}
-
-export interface S3Token {
+export interface NetiployToken {
   accessKeyId: string
   secretAccessKey: string
 }
 
-export interface S3Destination {
-  provider: "r2" | "s3"
+export interface NetiployDestination {
+  provider: NetiployProvider
   bucket: string
   prefix: string
 }
 
-function resolveSubfolder(subfolder: SubfolderMode): string {
-  if (subfolder === SubfolderMode.None) return ""
-  if (subfolder === SubfolderMode.Generate) return nanoid(8)
-  if (subfolder.startsWith("hash:")) {
-    const word = subfolder.slice(5)
-    return xxh32(word).toString(16)
-  }
-  return ""
-}
-
-function resolveRegion(endpoint: string): string {
-  const envRegion = process.env["NETIPLOY_REGION"] ?? process.env["S3_REGION"]
-  if (envRegion) {
-    return envRegion
-  }
-
-  try {
-    const host = new URL(endpoint).hostname.toLowerCase()
-    if (host.endsWith(".r2.cloudflarestorage.com")) {
-      return "auto"
-    }
-  } catch {
-    // Keep a sensible default if endpoint is malformed.
-  }
-
-  return "us-east-1"
-}
-
-async function collectFiles(dir: string): Promise<string[]> {
-  const entries = await readdir(dir, { withFileTypes: true })
-  const files: string[] = []
-
-  for (const entry of entries) {
-    const fullPath = join(dir, entry.name)
-
-    if (entry.isDirectory()) {
-      files.push(...(await collectFiles(fullPath)))
-      continue
-    }
-
-    if (entry.isFile()) {
-      files.push(fullPath)
-    }
-  }
-
-  return files
-}
-
-async function deleteAllObjects(
-  client: S3Client,
-  bucket: string,
-  prefix: string,
-): Promise<void> {
-  console.log(`Clearing ${bucket}/${prefix} ...`)
-
-  let continuationToken: string | undefined
-  let count = 0
-
-  do {
-    const response = await client.list({
-      prefix,
-      continuationToken,
-      maxKeys: 1000,
-    })
-    for (const obj of response.contents ?? []) {
-      await client.delete(obj.key)
-      count++
-    }
-    continuationToken = response.nextContinuationToken
-  } while (continuationToken)
-
-  console.log(`Deleted ${count} existing object(s)`)
-}
-
 export interface DeployArgs {
-  token: S3Token
+  token: NetiployToken
   endpoint: string
-  worker: number
+  region?: string
+  workerCount: number
   source: string
-  destination: S3Destination
+  destination: NetiployDestination
   subfolder: SubfolderMode
   strategy: DeployStrategy
 }
@@ -252,10 +60,46 @@ export interface DeployResult {
   deployedPrefix?: string
 }
 
+function resolveRegion(endpoint: string): string {
+  try {
+    const host = new URL(endpoint).hostname.toLowerCase()
+    if (host.endsWith(".r2.cloudflarestorage.com")) {
+      return "auto"
+    }
+  } catch {
+    // Keep a sensible default if endpoint is malformed.
+  }
+
+  return "us-east-1"
+}
+
+function resolveSubfolder(subfolder: SubfolderMode): string {
+  switch (subfolder) {
+    case SubfolderMode.None:
+      return ""
+    case SubfolderMode.Generate:
+      return nanoid(8)
+    default:
+      if (subfolder.startsWith("hash:")) {
+        const word = subfolder.slice(5)
+        return xxh32(word).toString(16)
+      }
+      return ""
+  }
+}
+
+function resolveStrategy(strategy: string): DeployRunner {
+  switch (strategy) {
+    case "overwrite":
+      return new OverwriteStrategy()
+    default:
+      throw new Error(`Unknown deploy strategy: ${strategy}`)
+  }
+}
+
 export async function deploy(args: DeployArgs): Promise<DeployResult> {
-  const { endpoint, worker, source, destination, subfolder, strategy, token } =
+  const { endpoint, region, source, destination, subfolder, strategy, token } =
     args
-  const region = resolveRegion(endpoint)
 
   // Confirm input directory exists
   try {
@@ -263,96 +107,72 @@ export async function deploy(args: DeployArgs): Promise<DeployResult> {
     if (!info.isDirectory()) {
       return {
         ok: false,
-        errCode: ErrorCode.FileNotFound,
+        errCode: ErrorCode.IOError,
         message: `Not a directory: ${source}`,
       }
     }
   } catch {
     return {
       ok: false,
-      errCode: ErrorCode.FileNotFound,
+      errCode: ErrorCode.IOError,
       message: `Directory not found: ${source}`,
     }
   }
 
+  const effectiveRegion = region ?? resolveRegion(endpoint)
   const sourceDirName = basename(source)
   const resolvedSubfolder = resolveSubfolder(subfolder)
   const effectivePrefix = [destination.prefix, resolvedSubfolder, sourceDirName]
     .filter(Boolean)
     .join("/")
+  const effectiveDest = <NetiployDestination>{
+    provider: destination.provider,
+    bucket: destination.bucket,
+    prefix: effectivePrefix,
+  }
 
   const client = new S3Client({
     endpoint,
-    region,
+    region: effectiveRegion,
     accessKeyId: token.accessKeyId,
     secretAccessKey: token.secretAccessKey,
-    bucket: destination.bucket,
+    bucket: effectiveDest.bucket,
   })
 
   try {
-    if (strategy === DeployStrategy.Overwrite) {
-      const prefixForDelete = effectivePrefix ? `${effectivePrefix}/` : ""
-      if (prefixForDelete) {
-        await deleteAllObjects(client, destination.bucket, prefixForDelete)
-      }
-    }
-
-    const files = await collectFiles(source)
-    console.log(
-      `Uploading ${files.length} file(s) with ${worker} worker(s) ...`,
-    )
-
-    const uploadTasks: UploadTask[] = files.map((absolutePath, id) => {
-      const relativePath = relative(source, absolutePath)
-      const s3RelPath = relativePath.split(sep).join("/")
-      const s3Key = effectivePrefix
-        ? `${effectivePrefix}/${s3RelPath}`
-        : s3RelPath
-
-      return {
-        id,
-        absolutePath,
-        s3Key,
-      }
+    const runner = resolveStrategy(strategy)
+    await runner.execute(client, {
+      ...args,
+      destination: effectiveDest,
+      region: effectiveRegion,
     })
-
-    const uploadResult = await runUploadWorkers({
-      workerCount: worker,
-      config: {
-        endpoint,
-        region,
-        accessKeyId: token.accessKeyId,
-        secretAccessKey: token.secretAccessKey,
-        bucket: destination.bucket,
-      },
-      tasks: uploadTasks,
-    })
-
-    if (uploadResult.failed > 0) {
-      return {
-        ok: false,
-        errCode: ErrorCode.ServerError,
-        message: `${uploadResult.failed} file(s) failed to upload`,
-      }
-    }
 
     return {
       ok: true,
-      bucket: destination.bucket,
+      bucket: effectiveDest.bucket,
       deployedPrefix: effectivePrefix,
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    const isConnError =
+    // Classify network/auth errors without fragile substring matching.
+    // Bun's S3Client surfaces these as specific error names or HTTP status codes.
+    const isAuthOrNetworkError =
+      (err instanceof Error &&
+        (err.name === "S3Error" ||
+          err.name === "NetworkError" ||
+          err.name === "FetchError")) ||
       msg.includes("ECONNREFUSED") ||
       msg.includes("ECONNRESET") ||
-      msg.includes("InvalidCredentials") ||
-      msg.includes("403") ||
-      msg.includes("401")
+      msg.includes("ETIMEDOUT") ||
+      msg.includes("InvalidAccessKeyId") ||
+      msg.includes("InvalidClientTokenId") ||
+      msg.includes("SignatureDoesNotMatch")
 
     return {
       ok: false,
-      errCode: isConnError ? ErrorCode.Unconnectable : ErrorCode.InternalError,
+      errCode: isAuthOrNetworkError
+        ? ErrorCode.Unconnectable
+        : ErrorCode.InternalError,
       message: msg,
     }
   }

@@ -2,8 +2,8 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test"
 import { S3Client } from "bun"
 import { mkdir, writeFile, rm } from "node:fs/promises"
 import { join } from "node:path"
-import { deploy } from "../src/core"
-import { DeployStrategy, SubfolderMode } from "../src/core"
+import { deploy, DeployStrategy, SubfolderMode } from "../src/core"
+import { ErrorCode } from "../src/error"
 
 const LOCALSTACK_ENDPOINT = "http://localhost:4566"
 const TEST_BUCKET = "netiploy-test"
@@ -66,7 +66,7 @@ describe("deploy", () => {
     const result = await deploy({
       token: TEST_TOKEN,
       endpoint: LOCALSTACK_ENDPOINT,
-      worker: 3,
+      workerCount: 3,
       source: fixtureDir,
       destination: {
         provider: "r2",
@@ -95,7 +95,7 @@ describe("deploy", () => {
     const result = await deploy({
       token: TEST_TOKEN,
       endpoint: LOCALSTACK_ENDPOINT,
-      worker: 2,
+      workerCount: 2,
       source: fixtureDir,
       destination: {
         provider: "r2",
@@ -116,7 +116,7 @@ describe("deploy", () => {
     const result = await deploy({
       token: TEST_TOKEN,
       endpoint: LOCALSTACK_ENDPOINT,
-      worker: 2,
+      workerCount: 2,
       source: fixtureDir,
       destination: {
         provider: "r2",
@@ -142,7 +142,7 @@ describe("deploy", () => {
     const result1 = await deploy({
       token: TEST_TOKEN,
       endpoint: LOCALSTACK_ENDPOINT,
-      worker: 2,
+      workerCount: 2,
       source: fixtureDir,
       destination: {
         provider: "r2",
@@ -155,7 +155,7 @@ describe("deploy", () => {
     const result2 = await deploy({
       token: TEST_TOKEN,
       endpoint: LOCALSTACK_ENDPOINT,
-      worker: 2,
+      workerCount: 2,
       source: fixtureDir,
       destination: {
         provider: "r2",
@@ -179,7 +179,7 @@ describe("deploy", () => {
     const result = await deploy({
       token: TEST_TOKEN,
       endpoint: LOCALSTACK_ENDPOINT,
-      worker: 2,
+      workerCount: 2,
       source: "/tmp/does-not-exist-netiploy",
       destination: {
         provider: "r2",
@@ -191,6 +191,6 @@ describe("deploy", () => {
     })
 
     expect(result.ok).toBe(false)
-    expect(result.errCode).toBe(110) // ErrorCode.FileNotFound
+    expect(result.errCode).toBe(ErrorCode.IOError)
   })
 })

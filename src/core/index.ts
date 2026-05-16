@@ -1,9 +1,10 @@
-export { ErrorCode } from "./error"
+export { ErrorCode } from "../error"
 export {
+  type NetiployDestination,
+  type NetiployToken,
   type DeployArgs,
   type DeployResult,
-  type S3Destination,
-  type S3Token,
+  NetiployProvider,
   DeployStrategy,
   SubfolderMode,
   deploy,
