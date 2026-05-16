@@ -22,7 +22,7 @@ class UploadWorker {
   private readyReject: ((err: Error) => void) | null = null
 
   constructor(config: UploadWorkerConfig) {
-    this.worker = new Worker("./worker.ts")
+    this.worker = new Worker(new URL("../worker.ts", import.meta.url))
     this.worker.onmessage = (e: MessageEvent<WorkerMessage>) =>
       this.handleMessage(e.data)
     this.worker.onerror = (e: ErrorEvent) => this.handleError(e)
