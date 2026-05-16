@@ -153,7 +153,7 @@ export async function deploy(args: DeployArgs): Promise<DeployResult> {
       deployedPrefix: effectivePrefix,
     }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = err instanceof Error ? `${err.message}` : String(err)
     // Classify network/auth errors without fragile substring matching.
     // Bun's S3Client surfaces these as specific error names or HTTP status codes.
     const isAuthOrNetworkError =

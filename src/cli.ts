@@ -35,8 +35,8 @@ program
   .description("Deploy static files to Cloudflare R2 or S3-compatible storage")
   .version(`Systatum Netiploy ${VERSION}`, "-v, --version")
   .configureOutput({
-    outputError: (str, write) => {
-      write(buildErrorMessage(ErrorCode.CmdLineError, str))
+    writeErr: (str) => {
+      printError(buildErrorMessage(ErrorCode.CmdLineError, str))
     },
   })
 
@@ -129,7 +129,7 @@ program
         destStr = destinationArgs[1]!
       } else if (destinationArgs.length === 1 && destinationArgs[0] !== "to") {
         destStr = destinationArgs[0]!
-      } else if (destinationArgs.length === 0) {
+      } else if (destinationArgs.length === 1) {
         throw new InvalidArgumentError(
           `Missing destination. Usage: netiploy deploy <source> [to] <provider>/<bucket>[/<prefix>]`,
         )

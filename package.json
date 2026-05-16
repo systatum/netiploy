@@ -23,6 +23,7 @@
   },
   "scripts": {
     "prepare": "husky",
+    "build": "bun build --compile --minify --sourcemap --bytecode ./src/cli.ts ./src/core/worker.ts --outfile build/netiploy",
     "test": "bun test tests/e2e.test.ts",
     "test:e2e": "docker compose up -d && bun test tests/e2e.test.ts",
     "dev:fmt": "bunx prettier -w ."

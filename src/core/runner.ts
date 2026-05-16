@@ -21,8 +21,8 @@ class UploadWorker {
   private readyResolve: (() => void) | null = null
   private readyReject: ((err: Error) => void) | null = null
 
-  constructor(workerUrl: string, config: UploadWorkerConfig) {
-    this.worker = new Worker(workerUrl, { type: "module" })
+  constructor(config: UploadWorkerConfig) {
+    this.worker = new Worker("./src/core/worker.ts")
     this.worker.onmessage = (e: MessageEvent<WorkerMessage>) =>
       this.handleMessage(e.data)
     this.worker.onerror = (e: ErrorEvent) => this.handleError(e)
@@ -90,15 +90,13 @@ async function runUploadWorkers(
 ): Promise<UploadOutcome> {
   const { workerCount, config, tasks } = args
   if (tasks.length === 0) return { completed: 0, failed: 0 }
-
-  const workerUrl = new URL("./worker.ts", import.meta.url).href
   const taskQueue = [...tasks]
 
   let completed = 0
   let failed = 0
 
   async function runWorker(): Promise<void> {
-    const worker = new UploadWorker(workerUrl, config)
+    const worker = new UploadWorker(config)
     await worker.waitForReady()
 
     while (taskQueue.length > 0) {
@@ -124,26 +122,31 @@ async function deleteAllObjects(
   const spinner = createSpinner(`Clearing ${bucket}/${prefix}`)
   const clearStart = Date.now()
 
-  let continuationToken: string | undefined
-  let count = 0
+  try {
+    let continuationToken: string | undefined
+    let count = 0
 
-  do {
-    const response = await client.list({
-      prefix,
-      continuationToken,
-      maxKeys: 1000,
-    })
-    for (const obj of response.contents ?? []) {
-      await client.delete(obj.key)
-      count++
-    }
-    continuationToken = response.nextContinuationToken
-  } while (continuationToken)
+    do {
+      const response = await client.list({
+        prefix,
+        continuationToken,
+        maxKeys: 1000,
+      })
+      for (const obj of response.contents ?? []) {
+        await client.delete(obj.key)
+        count++
+      }
+      continuationToken = response.nextContinuationToken
+    } while (continuationToken)
 
-  spinner.stop(
-    "ok",
-    `Cleared ${count} object(s) (${formatDurationMs(Date.now() - clearStart)})`,
-  )
+    spinner.stop(
+      "ok",
+      `Cleared ${count} object(s) (${formatDurationMs(Date.now() - clearStart)})`,
+    )
+  } catch (err) {
+    spinner.stop("error", "Failed to clear objects")
+    throw err
+  }
 }
 
 async function collectFiles(dir: string): Promise<string[]> {
@@ -204,25 +207,33 @@ export class OverwriteStrategy implements DeployRunner {
       `Uploading ${uploadTasks.length} files with ${effectiveWorkerCount} worker(s)...`,
     )
 
-    const { completed, failed } = await runUploadWorkers({
-      workerCount: effectiveWorkerCount,
-      config: {
-        endpoint: args.endpoint,
-        region: args.region!,
-        accessKeyId: args.token.accessKeyId,
-        secretAccessKey: args.token.secretAccessKey,
-        bucket: args.destination.bucket,
-      },
-      tasks: uploadTasks,
-    })
+    try {
+      const { completed, failed } = await runUploadWorkers({
+        workerCount: effectiveWorkerCount,
+        config: {
+          endpoint: args.endpoint,
+          region: args.region!,
+          accessKeyId: args.token.accessKeyId,
+          secretAccessKey: args.token.secretAccessKey,
+          bucket: args.destination.bucket,
+        },
+        tasks: uploadTasks,
+      })
 
-    spinner.stop(
-      failed > 0 ? "partial" : "ok",
-      `Uploaded ${completed} file(s), ${failed} failed`,
-    )
+      spinner.stop(
+        failed > 0 ? "partial" : "ok",
+        `Uploaded ${completed} file(s), ${failed} failed`,
+      )
 
-    if (failed > 0) {
-      throw new Error(`${failed} file(s) failed to upload`)
+      if (failed > 0) {
+        throw new Error(`${failed} file(s) failed to upload`)
+      }
+    } catch (err) {
+      // immediately stop the spinner on worker error
+      spinner.stop("error", err instanceof Error ? err.message : String(err))
+
+      // rethrow to trigger proper error reporting
+      throw err
     }
   }
 }

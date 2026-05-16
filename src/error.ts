@@ -30,6 +30,6 @@ function defaultMessage(code: ErrorCode): string {
 }
 
 export function buildErrorMessage(code: ErrorCode, details?: string): string {
-  const msg = details ?? defaultMessage(code)
+  const msg = details || defaultMessage(code)
   return `ERR${code}. ${msg}`.trim()
 }
