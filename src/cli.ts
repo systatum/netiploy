@@ -190,6 +190,8 @@ program
         throw new InvalidArgumentError("Bucket name is required in destination")
       }
 
+      printBanner(`Netiploy Deploy v${VERSION}`)
+
       printInfo(
         `Deploying ${source} to ${provider}/${bucket}/${prefixParts.join("/")}`,
       )
@@ -227,11 +229,11 @@ program
     },
   )
 
+program.action(() => program.help())
+
 program.on("command:*", (unknownCmds: string[]) => {
   throw new InvalidArgumentError(`Unknown command: ${unknownCmds.join(" ")}`)
 })
-
-printBanner(`Netiploy v${VERSION}`)
 
 program.parseAsync().catch((err: Error & { cause?: ErrorCode }) => {
   if (err instanceof InvalidArgumentError) {

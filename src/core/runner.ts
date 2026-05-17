@@ -1,7 +1,7 @@
 import type { S3Client } from "bun"
 import { readdir } from "fs/promises"
 import { join, relative, sep } from "path"
-import type { UploadTask, UploadWorkerConfig } from "./worker"
+import type { UploadWorkerConfig, UploadTask } from "../worker"
 import { createSpinner } from "../utils"
 import { type ResolvedClientConfig } from "."
 
@@ -22,7 +22,7 @@ class UploadWorker {
   private readyReject: ((err: Error) => void) | null = null
 
   constructor(config: UploadWorkerConfig) {
-    this.worker = new Worker(new URL("./worker.js", import.meta.url).href)
+    this.worker = new Worker("./worker.ts")
     this.worker.onmessage = (e: MessageEvent<WorkerMessage>) =>
       this.handleMessage(e.data)
     this.worker.onerror = (e: ErrorEvent) => this.handleError(e)
