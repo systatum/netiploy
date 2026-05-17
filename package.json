@@ -23,10 +23,17 @@
   },
   "scripts": {
     "prepare": "husky",
-    "build": "bun build --compile --minify --sourcemap --bytecode ./src/cli.ts ./src/core/worker.ts --outfile build/netiploy",
+    "build": "bun run build:all",
+    "build:linux:x64": "bun build ./src/cli.ts ./src/core/worker.ts --compile --minify --sourcemap --bytecode --target=bun-linux-x64 --outfile build/netiploy-linux-x64",
+    "build:linux:arm": "bun build ./src/cli.ts ./src/core/worker.ts --compile --minify --sourcemap --bytecode --target=bun-linux-arm64 --outfile build/netiploy-linux-arm64",
+    "build:mac:x64": "bun build ./src/cli.ts ./src/core/worker.ts --compile --minify --sourcemap --bytecode --target=bun-darwin-x64 --outfile build/netiploy-macos-x64",
+    "build:mac:arm": "bun build ./src/cli.ts ./src/core/worker.ts --compile --minify --sourcemap --bytecode --target=bun-darwin-arm64 --outfile build/netiploy-macos-arm64",
+    "build:win:x64": "bun build ./src/cli.ts ./src/core/worker.ts --compile --minify --sourcemap --bytecode --target=bun-windows-x64 --outfile build/netiploy-win-x64.exe",
+    "build:win:arm": "bun build ./src/cli.ts ./src/core/worker.ts --compile --minify --sourcemap --bytecode --target=bun-windows-arm64 --outfile build/netiploy-win-arm64.exe",
+    "build:all": "bun run build:linux:x64 && bun run build:linux:arm && bun run build:mac:x64 && bun run build:mac:arm && bun run build:win:x64 && bun run build:win:arm",
     "test": "bun test tests/e2e.test.ts",
     "test:e2e": "docker compose up -d && bun test tests/e2e.test.ts",
-    "dev:fmt": "bunx prettier -w ."
+    "dev:fmt": "bun x prettier -w ."
   },
   "lint-staged": {
     "**/*": "prettier --write --ignore-unknown"

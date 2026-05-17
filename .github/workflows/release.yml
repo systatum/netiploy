@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build binaries
+        run: bun run build:all
+
+      - name: Make binaries executable
+        run: |
+          chmod +x build/netiploy-linux-x64
+          chmod +x build/netiploy-linux-arm64
+          chmod +x build/netiploy-macos-x64
+          chmod +x build/netiploy-macos-arm64
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd build
+          sha256sum \
+            netiploy-linux-x64 \
+            netiploy-linux-arm64 \
+            netiploy-macos-x64 \
+            netiploy-macos-arm64 \
+            netiploy-win-x64.exe \
+            netiploy-win-arm64.exe \
+            > checksums.txt
+
+      - name: Show build artifacts
+        run: |
+          ls -lah build
+          echo
+          cat build/checksums.txt
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/netiploy-linux-x64
+            build/netiploy-linux-arm64
+            build/netiploy-macos-x64
+            build/netiploy-macos-arm64
+            build/netiploy-win-x64.exe
+            build/netiploy-win-arm64.exe
+            build/checksums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

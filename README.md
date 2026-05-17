@@ -5,6 +5,8 @@
 ## Installation
 
 ```bash
+bun install
+
 # Run directly with Bun (no global install required)
 bun run src/cli.ts deploy ...
 
