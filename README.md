@@ -1,6 +1,6 @@
 # Netiploy
 
-**Netiploy** is a Bun-optimized CLI tool for deploying static files to Cloudflare R2 (or any S3-compatible storage) without paying for Netlify.
+**Netiploy** is an open-source Bun-optimized CLI tool for deploying static files to Cloudflare R2 (or any S3-compatible storage) without paying for Netlify.
 
 ## Installation
 
@@ -10,7 +10,7 @@ bun install
 # Run directly with Bun (no global install required)
 bun run src/cli.ts deploy ...
 
-# Or link globally
+# Or link globally during local development
 bun run build
 bun link
 netiploy deploy ...
@@ -58,7 +58,7 @@ As such, there is no need to manually supply the endpoint, for convenience!
 
 ---
 
-## Usage
+## How to Use
 
 ```bash
 netiploy deploy <source-folder> [to] <provider>/<bucket>[/<prefix>] [options]
@@ -161,7 +161,7 @@ Public URL: https://bucketname.dev/some-sub-folder-if-any/foldername.
 
 ---
 
-## R2 configuration: serving `index.html` automatically for SPAs
+## How to configure Cloudflare R2: serving `index.html` automatically for SPAs
 
 By default, visiting `https://your-domain.com/some-route` on an R2-backed site
 returns a 404 because R2 serves raw objects and does not automatically append
@@ -192,13 +192,42 @@ before forwarding the request to R2, which makes SPAs work correctly.
 
 ---
 
-## Development & testing
+## How to Test
 
 ```bash
 # Run E2E tests (requires Docker)
 docker compose up -d          # start localstack
 bun test tests/e2e.test.ts    # run E2E suite
 docker compose down           # stop localstack
+```
+
+## How to Publish
+
+**NOTE:** Make sure to bump the `version` field in `package.json` and the `VERSION` constant in `src/index.ts`.
+
+### GitHub Releases
+
+1. Run the build command for outputting binaries.
+
+```
+bun run build:bin:all
+```
+
+2. Upload to GitHub Releases with the approriate tag.
+
+### GitHub Packages
+
+1. For CLI-tool build.
+
+```bash
+NPM_CONFIG_TOKEN=<your_github_token> bun run release:gh
+```
+
+2. For library build.
+
+```bash
+bun run build:lib
+# publish manually (possibly full support in the future)
 ```
 
 ## Acknowledgements
