@@ -1,3 +1,5 @@
+import { formatDurationMs } from "."
+
 const ANSI = {
   reset: "\x1b[0m",
   bold: "\x1b[1m",
@@ -16,7 +18,7 @@ function colored(text: string, color: string): string {
 }
 
 export function printBanner(title: string): void {
-  const line = "-".repeat(Math.max(30, title.length + 8))
+  const line = "─".repeat(Math.max(30, title.length + 8))
   console.log(colored(line, ANSI.dim))
   console.log(colored(`  ${title}`, ANSI.bold))
   console.log(colored(line, ANSI.dim))
@@ -25,19 +27,35 @@ export function printBanner(title: string): void {
 function levelTag(level: ReporterLevel): string {
   switch (level) {
     case "info":
-      return colored("\u2139", ANSI.cyan)
+      return colored("i", ANSI.cyan)
     case "ok":
       return colored("\u2713", ANSI.green)
     case "warn":
-      return colored("\u26A0", ANSI.yellow)
+      return colored("!", ANSI.yellow)
     case "error":
-      return colored("\u2716", ANSI.red)
+      return colored("X", ANSI.red)
   }
 }
 
 export function print(level: ReporterLevel, message: string): void {
   message = level === "error" ? colored(message, ANSI.red) : message
   console.log(`${levelTag(level)} ${message}`)
+}
+
+export function printOk(message: string): void {
+  print("ok", message)
+}
+
+export function printInfo(message: string): void {
+  print("info", message)
+}
+
+export function printError(message: string): void {
+  print("error", message)
+}
+
+export function printWarn(message: string): void {
+  print("warn", message)
 }
 
 export function printMeta(label: string, value: string | number): void {
@@ -69,37 +87,96 @@ const SPINNER_FRAMES = [
 export type Status = "ok" | "error" | "partial"
 
 export interface Spinner {
+  message: string
+  progress(current: number, total: number): void
   stop(status: Status, finalMessage?: string): void
 }
 
-export function createSpinner(message: string): Spinner {
+export function createSpinner(initialMessage?: string): Spinner {
+  const baseLabel = initialMessage ?? "..."
+  let currentMessage = baseLabel
+  let stopped = false
+  let lastProgress: { current: number; total: number } | null = null
+  const startTime = Date.now()
+
+  function resolveStopMessage(finalMessage?: string): string {
+    if (finalMessage !== undefined) return finalMessage
+    if (lastProgress !== null) {
+      const elapsed = formatDurationMs(Date.now() - startTime)
+      return `${baseLabel} [${lastProgress.current}/${lastProgress.total}] (${elapsed})`
+    }
+    return currentMessage
+  }
+
   if (!process.stdout.isTTY) {
-    process.stdout.write(`◐ ${message}\n`)
-    return {
-      stop(status: Status, finalMessage?: string) {
-        console.log(
-          `${levelTag(status === "partial" ? "warn" : status)} ${finalMessage ?? message}`,
-        )
+    process.stdout.write(`◐ ${currentMessage}\n`)
+
+    const spinner: Spinner = {
+      get message(): string {
+        return currentMessage
+      },
+      set message(value: string) {
+        currentMessage = value
+      },
+
+      progress(current: number, total: number): void {
+        lastProgress = { current, total }
+        currentMessage = `${baseLabel} [${current}/${total}]`
+      },
+
+      stop(status: Status, finalMessage?: string): void {
+        if (stopped) return
+        stopped = true
+        const resolvedStatus = status === "partial" ? "warn" : status
+        const msg = resolveStopMessage(finalMessage)
+        process.stdout.write(`${levelTag(resolvedStatus)} ${msg}\n`)
       },
     }
+
+    return spinner
   }
 
-  let i = 0
-  const interval = setInterval(() => {
+  // For TTY output, render an animated spinner on the same line.
+
+  let frameIndex = 0
+
+  function renderFrame(): void {
     const frame = colored(
-      SPINNER_FRAMES[i++ % SPINNER_FRAMES.length]!,
+      SPINNER_FRAMES[frameIndex++ % SPINNER_FRAMES.length]!,
       ANSI.cyan,
     )
-    process.stdout.write(`\r${frame} ${message}`)
-  }, 80)
+    process.stdout.write(`\r${frame} ${currentMessage}\x1b[K`)
+  }
 
-  return {
-    stop(status: Status, finalMessage?: string) {
+  const interval = setInterval(renderFrame, 80)
+
+  renderFrame()
+
+  const spinner: Spinner = {
+    get message(): string {
+      return currentMessage
+    },
+    set message(value: string) {
+      currentMessage = value
+    },
+
+    progress(current: number, total: number): void {
+      lastProgress = { current, total }
+      currentMessage = `${baseLabel} [${current}/${total}]`
+    },
+
+    stop(status: Status, finalMessage?: string): void {
+      if (stopped) return
+      stopped = true
       clearInterval(interval)
-      const msg = (finalMessage ?? message).padEnd(message.length + 4, " ")
-      process.stdout.write(
-        `\r${levelTag(status === "partial" ? "warn" : status)} ${msg}\n`,
-      )
+
+      const resolvedStatus = status === "partial" ? "warn" : status
+      const msg = resolveStopMessage(finalMessage)
+
+      // Overwrite the spinner line with the final status, then newline.
+      process.stdout.write(`\r${levelTag(resolvedStatus)} ${msg}\x1b[K\n`)
     },
   }
+
+  return spinner
 }
