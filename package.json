@@ -1,18 +1,58 @@
 {
-  "name": "netiploy",
-  "version": "1.0.0",
-  "module": "src/index.ts",
+  "name": "@systatum/netiploy",
+  "version": "1.0.1",
+  "description": "Like-Netlify-but-your-own-storage deployer",
   "type": "module",
-  "private": true,
+  "main": "./build/index.cjs",
+  "module": "./build/index.js",
+  "types": "./build/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./build/index.d.ts",
+      "import": "./build/index.js",
+      "require": "./build/index.cjs",
+      "default": "./build/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "build",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/systatum/netiploy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/systatum/netiploy/issues"
+  },
+  "homepage": "https://github.com/systatum/netiploy#readme",
+  "keywords": [
+    "bun",
+    "netlify",
+    "cli",
+    "deploy",
+    "s3",
+    "cloudflare-r2"
+  ],
   "bin": {
-    "netiploy": "./build/netiploy"
+    "netiploy": "./build/cli.js"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.4",
     "oxfmt": "^0.49.0",
-    "prettier": "3.8.3"
+    "prettier": "3.8.3",
+    "rimraf": "^6.0.1"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -23,17 +63,27 @@
   },
   "scripts": {
     "prepare": "husky",
-    "build": "bun run build:all",
-    "build:linux:x64": "bun build ./src/cli.ts ./src/core/worker.ts --compile --minify --sourcemap --bytecode --target=bun-linux-x64 --outfile build/netiploy-linux-x64",
-    "build:linux:arm": "bun build ./src/cli.ts ./src/core/worker.ts --compile --minify --sourcemap --bytecode --target=bun-linux-arm64 --outfile build/netiploy-linux-arm64",
-    "build:mac:x64": "bun build ./src/cli.ts ./src/core/worker.ts --compile --minify --sourcemap --bytecode --target=bun-darwin-x64 --outfile build/netiploy-macos-x64",
-    "build:mac:arm": "bun build ./src/cli.ts ./src/core/worker.ts --compile --minify --sourcemap --bytecode --target=bun-darwin-arm64 --outfile build/netiploy-macos-arm64",
-    "build:win:x64": "bun build ./src/cli.ts ./src/core/worker.ts --compile --minify --sourcemap --bytecode --target=bun-windows-x64 --outfile build/netiploy-win-x64.exe",
-    "build:win:arm": "bun build ./src/cli.ts ./src/core/worker.ts --compile --minify --sourcemap --bytecode --target=bun-windows-arm64 --outfile build/netiploy-win-arm64.exe",
-    "build:all": "bun run build:linux:x64 && bun run build:linux:arm && bun run build:mac:x64 && bun run build:mac:arm && bun run build:win:x64 && bun run build:win:arm",
-    "test": "bun test tests/e2e.test.ts",
-    "test:e2e": "docker compose up -d && bun test tests/e2e.test.ts",
-    "dev:fmt": "bun x prettier -w ."
+    "clean": "rimraf build",
+    "typecheck": "tsc --noEmit",
+    "lint": "prettier --check . && bun run run typecheck",
+    "format": "bun x prettier -w .",
+    "build": "bun run clean && bun build ./src/cli.ts --outdir build --target bun && bun build ./src/core/worker.ts --outfile build/worker.js --target bun",
+    "build:types": "tsc -p tsconfig.build.json",
+    "build:bin:linux:x64": "bun build ./src/cli.ts ./src/core/worker.ts --compile --minify --sourcemap --bytecode --target=bun-linux-x64 --outfile build/netiploy-linux-x64",
+    "build:bin:linux:arm": "bun build ./src/cli.ts ./src/core/worker.ts --compile --minify --sourcemap --bytecode --target=bun-linux-arm64 --outfile build/netiploy-linux-arm64",
+    "build:bin:mac:x64": "bun build ./src/cli.ts ./src/core/worker.ts --compile --minify --sourcemap --bytecode --target=bun-darwin-x64 --outfile build/netiploy-macos-x64",
+    "build:bin:mac:arm": "bun build ./src/cli.ts ./src/core/worker.ts --compile --minify --sourcemap --bytecode --target=bun-darwin-arm64 --outfile build/netiploy-macos-arm64",
+    "build:bin:win:x64": "bun build ./src/cli.ts ./src/core/worker.ts --compile --minify --sourcemap --bytecode --target=bun-windows-x64 --outfile build/netiploy-win-x64.exe",
+    "build:bin:win:arm": "bun build ./src/cli.ts ./src/core/worker.ts --compile --minify --sourcemap --bytecode --target=bun-windows-arm64 --outfile build/netiploy-win-arm64.exe",
+    "build:bin:all": "bun run clean && bun run build:bin:linux:x64 && bun run build:bin:linux:arm && bun run build:bin:mac:x64 && bun run build:bin:mac:arm && bun run build:bin:win:x64 && bun run build:bin:win:arm",
+    "build:lib:esm": "bun build ./src/index.ts --outdir build --target bun --format esm",
+    "build:lib:cjs": "bun build ./src/index.ts --outfile build/index.cjs --target bun --format cjs",
+    "build:lib": "bun run clean && bun run build:types && bun run build:lib:esm && bun run build:lib:cjs",
+    "test": "docker compose up -d && bun test",
+    "pack:check": "bun pm pack --dry-run",
+    "prepack": "bun run build",
+    "prepublishOnly": "bun run lint && bun run test && bun run pack:check",
+    "release:gh": "bun publish --registry https://npm.pkg.github.com"
   },
   "lint-staged": {
     "**/*": "prettier --write --ignore-unknown"
