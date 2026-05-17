@@ -2,7 +2,7 @@ import type { S3Client } from "bun"
 import { readdir } from "fs/promises"
 import { join, relative, sep } from "path"
 import type { UploadTask, UploadWorkerConfig } from "./worker"
-import { createSpinner, formatDurationMs } from "../utils"
+import { createSpinner } from "../utils"
 import { type ResolvedClientConfig } from "."
 
 type TaskResult =
@@ -95,6 +95,8 @@ async function runUploadWorkers(
   let completed = 0
   let failed = 0
 
+  const spinner = createSpinner(`Uploading files...`)
+
   async function runWorker(): Promise<void> {
     const worker = new UploadWorker(config)
     await worker.waitForReady()
@@ -102,14 +104,24 @@ async function runUploadWorkers(
     while (taskQueue.length > 0) {
       const task = taskQueue.shift()!
       const result = await worker.send(task)
+
       if (result.ok) completed++
       else failed++
+
+      spinner.progress(completed, tasks.length)
     }
 
     worker.terminate()
   }
 
-  await Promise.all(Array.from({ length: workerCount }, () => runWorker()))
+  await Promise.all(
+    Array.from({ length: workerCount }, () => runWorker()),
+  ).catch((err) => {
+    spinner.stop("error", `Upload failed: ${err.message}`)
+    throw err
+  })
+
+  spinner.stop(failed > 0 ? "partial" : "ok")
 
   return { completed, failed }
 }
@@ -119,12 +131,13 @@ async function deleteAllObjects(
   bucket: string,
   prefix: string,
 ): Promise<void> {
-  const spinner = createSpinner(`Clearing ${bucket}/${prefix}`)
-  const clearStart = Date.now()
+  const path = `${bucket}/${prefix}`
+  const spinner = createSpinner(`Clearing existing objects from ${path}...`)
 
   try {
     let continuationToken: string | undefined
     let count = 0
+    let total = 0
 
     do {
       const response = await client.list({
@@ -132,19 +145,18 @@ async function deleteAllObjects(
         continuationToken,
         maxKeys: 1000,
       })
+      total += response.keyCount ?? 0
       for (const obj of response.contents ?? []) {
         await client.delete(obj.key)
         count++
+        spinner.progress(count, total)
       }
       continuationToken = response.nextContinuationToken
     } while (continuationToken)
 
-    spinner.stop(
-      "ok",
-      `Cleared ${count} object(s) (${formatDurationMs(Date.now() - clearStart)})`,
-    )
+    spinner.stop("ok")
   } catch (err) {
-    spinner.stop("error", "Failed to clear objects")
+    spinner.stop("error", `Failed to clear objects from ${path}`)
     throw err
   }
 }
@@ -214,37 +226,20 @@ export class OverwriteStrategy implements DeployRunner {
       Math.min(ctx.workerCount ?? 1, uploadTasks.length),
     )
 
-    const spinner = createSpinner(
-      `Uploading ${uploadTasks.length} files with ${effectiveWorkerCount} worker(s)...`,
-    )
+    const result = await runUploadWorkers({
+      workerCount: effectiveWorkerCount,
+      config: {
+        endpoint: ctx.clientConfig.endpoint,
+        region: ctx.clientConfig.region,
+        accessKeyId: ctx.clientConfig.token.accessKeyId,
+        secretAccessKey: ctx.clientConfig.token.secretAccessKey,
+        bucket: ctx.clientConfig.bucket,
+      },
+      tasks: uploadTasks,
+    })
 
-    try {
-      const { completed, failed } = await runUploadWorkers({
-        workerCount: effectiveWorkerCount,
-        config: {
-          endpoint: ctx.clientConfig.endpoint,
-          region: ctx.clientConfig.region,
-          accessKeyId: ctx.clientConfig.token.accessKeyId,
-          secretAccessKey: ctx.clientConfig.token.secretAccessKey,
-          bucket: ctx.clientConfig.bucket,
-        },
-        tasks: uploadTasks,
-      })
-
-      spinner.stop(
-        failed > 0 ? "partial" : "ok",
-        `Uploaded ${completed} file(s), ${failed} failed`,
-      )
-
-      if (failed > 0) {
-        throw new Error(`${failed} file(s) failed to upload`)
-      }
-    } catch (err) {
-      // immediately stop the spinner on worker error
-      spinner.stop("error", err instanceof Error ? err.message : String(err))
-
-      // rethrow to trigger proper error reporting
-      throw err
+    if (result.failed > 0) {
+      throw new Error(`${result.failed} file(s) failed to upload`)
     }
   }
 }

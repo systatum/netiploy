@@ -6,6 +6,7 @@ import { xxh32 } from "../utils/xxh32"
 import { basename } from "path"
 import { OverwriteStrategy, type DeployRunner } from "./runner"
 import { ClientProvider, type ClientConfig, type ResolvedClientConfig } from "."
+import { printInfo } from "../utils"
 
 export const SubfolderMode = {
   None: "none",
@@ -38,6 +39,7 @@ export interface DeployResult {
   publicUrl?: string
 }
 
+// Resolves the nullable properties of ClientConfig and applies provider-specific defaults
 function resolveConfig(args: DeployArgs): ResolvedClientConfig {
   const sourceDirName = basename(args.source)
   const resolvedSubfolder = resolveSubfolder(args.subfolder)
@@ -143,6 +145,7 @@ export async function deploy(args: DeployArgs): Promise<DeployResult> {
 
     await client.list({ maxKeys: 0 }) // warm up the client to fail fast on auth/network errors
 
+    printInfo(`Using strategy: ${strategy}`)
     const runner = resolveStrategy(strategy)
     await runner.execute({
       client,
