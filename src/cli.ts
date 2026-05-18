@@ -2,30 +2,25 @@
 
 import { InvalidArgumentError, Option, program } from "commander"
 import { resolve } from "node:path"
-import {
-  deploy,
-  DeployStrategy,
-  SubfolderMode,
-  ErrorCode,
-  ClientProvider,
-  type ClientToken,
-} from "./core"
 import { VERSION } from "."
-import { buildErrorMessage } from "./error"
+import { deploy, DeployStrategy } from "./deployer"
+import { ClientProvider, type ClientToken } from "./deployer/config"
+import { SubfolderMode } from "./deployer/files"
+import { buildErrorMessage, ErrorCode } from "./error"
 import {
+  formatDurationMs,
   printBanner,
+  printError,
+  printInfo,
   printMeta,
   printSummary,
-  formatDurationMs,
-  printInfo,
-  printError,
 } from "./utils"
 
 interface DeployOptions {
   token?: ClientToken
   accountId?: string
   worker: number
-  subfolder: SubfolderMode | string
+  subfolder: SubfolderMode
   strategy: DeployStrategy
 }
 
