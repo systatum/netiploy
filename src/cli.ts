@@ -116,23 +116,7 @@ program
       const { token, strategy, subfolder, worker, accountId } = options
 
       source = resolve(source)
-
-      let destStr: string
-      if (destinationArgs.length === 2 && destinationArgs[0] === "to") {
-        destStr = destinationArgs[1]!
-      } else if (destinationArgs.length === 1 && destinationArgs[0] !== "to") {
-        destStr = destinationArgs[0]!
-      } else if (destinationArgs.length === 1) {
-        throw new InvalidArgumentError(
-          `Missing destination. Usage: netiploy deploy <source> [to] <provider>/<bucket>[/<prefix>]`,
-        )
-      } else {
-        throw new InvalidArgumentError(
-          `Unexpected arguments: ${destinationArgs.join(" ")}. ` +
-            `Usage: netiploy deploy <source> [to] <provider>/<bucket>[/<prefix>]`,
-        )
-      }
-
+      const destStr: string = parseDestinationArgs(destinationArgs)
       const parts = destStr.split("/")
       if (parts.length < 2) {
         throw new InvalidArgumentError(
@@ -239,3 +223,24 @@ program.parseAsync().catch((err: Error & { cause?: ErrorCode }) => {
   printError(buildErrorMessage(code, err.message))
   process.exit(code)
 })
+
+function parseDestinationArgs(destinationArgs: string[]) {
+  let destStr: string
+
+  if (destinationArgs.length === 2 && destinationArgs[0] === "to") {
+    destStr = destinationArgs[1]!
+  } else if (destinationArgs.length === 1 && destinationArgs[0] !== "to") {
+    destStr = destinationArgs[0]!
+  } else if (destinationArgs.length === 1) {
+    throw new InvalidArgumentError(
+      `Missing destination. Usage: netiploy deploy <source> [to] <provider>/<bucket>[/<prefix>]`,
+    )
+  } else {
+    throw new InvalidArgumentError(
+      `Unexpected arguments: ${destinationArgs.join(" ")}. ` +
+        `Usage: netiploy deploy <source> [to] <provider>/<bucket>[/<prefix>]`,
+    )
+  }
+
+  return destStr
+}
