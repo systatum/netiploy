@@ -45,18 +45,7 @@ program
   .option(
     "--token <token>",
     "Auth token in accessKeyId:secretAccessKey format",
-    (value) => {
-      const colonIdx = value.indexOf(":")
-      if (colonIdx === -1) {
-        throw new InvalidArgumentError(
-          "Token must be in format 'accessKeyId:secretAccessKey'",
-        )
-      }
-      return <ClientToken>{
-        accessKeyId: value.slice(0, colonIdx),
-        secretAccessKey: value.slice(colonIdx + 1),
-      }
-    },
+    (value) => parseAPIToken(value),
   )
   .option(
     "--account-id <id>",
@@ -199,6 +188,19 @@ program.parseAsync().catch((err: Error & { cause?: ErrorCode }) => {
   printError(buildErrorMessage(code, err.message))
   process.exit(code)
 })
+
+function parseAPIToken(value: string) {
+  const colonIdx = value.indexOf(":")
+  if (colonIdx === -1) {
+    throw new InvalidArgumentError(
+      "Token must be in format 'accessKeyId:secretAccessKey'",
+    )
+  }
+  return <ClientToken>{
+    accessKeyId: value.slice(0, colonIdx),
+    secretAccessKey: value.slice(colonIdx + 1),
+  }
+}
 
 function parseNumberOfWorkers(value: string) {
   const n = parseInt(value, 10)
