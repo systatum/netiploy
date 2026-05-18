@@ -18,7 +18,7 @@ export type SubfolderMode =
 /**
  * Determine the target folder in the remote machine as the target of deployment
  */
-export function resolveSubfolder(mode: SubfolderMode): string {
+export function resolveSubfolder(mode: SubfolderMode | string): string {
   switch (mode) {
     case SubfolderMode.None:
       return ""
@@ -27,6 +27,9 @@ export function resolveSubfolder(mode: SubfolderMode): string {
     default:
       if (mode.startsWith("hash:")) {
         const word = mode.slice(5)
+        if (word.includes(" ")) {
+          throw new Error(`String to hash must not contain spaces`)
+        }
         return xxh32(word).toString(16)
       }
 

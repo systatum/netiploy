@@ -5,7 +5,7 @@ import { resolve } from "node:path"
 import { VERSION } from "."
 import { deploy, DeployStrategy } from "./deployer"
 import { ClientProvider, type ClientToken } from "./deployer/config"
-import { SubfolderMode } from "./deployer/files"
+import { resolveSubfolder, SubfolderMode } from "./deployer/files"
 import { buildErrorMessage, ErrorCode } from "./error"
 import {
   formatDurationMs,
@@ -72,23 +72,7 @@ program
   .option(
     "--subfolder <mode>",
     "Subfolder mode: none | generate | hash:<word> (default: none)",
-    (value) => {
-      if (value === SubfolderMode.None || value === SubfolderMode.Generate) {
-        return value
-      }
-      if (value.startsWith("hash:")) {
-        const word = value.slice(5)
-        if (word.includes(" ")) {
-          throw new InvalidArgumentError(
-            `--subfolder hash word must not contain spaces: "${word}"`,
-          )
-        }
-        return value
-      }
-      throw new InvalidArgumentError(
-        `Invalid --subfolder value "${value}". Expected: none | generate | hash:<word>`,
-      )
-    },
+    (value) => parseSubfolderMode(value),
     SubfolderMode.None,
   )
   .addOption(
@@ -224,6 +208,18 @@ function parseNumberOfWorkers(value: string) {
     )
   }
   return n
+}
+
+function parseSubfolderMode(value: string) {
+  try {
+    return resolveSubfolder(value)
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new InvalidArgumentError(
+        `--subfolder receive invalid value: ${error.message}`,
+      )
+    }
+  }
 }
 
 function parseDestinationArgs(destinationArgs: string[]) {
