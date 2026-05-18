@@ -184,6 +184,28 @@ describe("deploy", () => {
     await purgePrefix(prefix1 + "/")
   })
 
+  test("subfolder=hash:<word> does not allow space in the word", async () => {
+    const word = "pr 123"
+
+    expect(
+      async () =>
+        await deploy({
+          worker: 2,
+          source: fixtureDir,
+          clientConfig: {
+            token: TEST_TOKEN,
+            endpoint: LOCALSTACK_ENDPOINT,
+            provider: ClientProvider.S3,
+            region: "us-east-1",
+            bucket: TEST_BUCKET,
+            prefix: "prs",
+          },
+          subfolder: `hash:${word}`,
+          strategy: DeployStrategy.Overwrite,
+        }),
+    ).toThrowError("String to hash must not contain spaces")
+  })
+
   test("returns FileNotFound error for non-existent source dir", async () => {
     const result = await deploy({
       worker: 2,
