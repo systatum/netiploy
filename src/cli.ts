@@ -66,15 +66,7 @@ program
   .option(
     "--worker <n>",
     "Number of concurrent upload workers (default: 5)",
-    (value) => {
-      const n = parseInt(value, 10)
-      if (isNaN(n) || n < 1) {
-        throw new InvalidArgumentError(
-          `--worker must be a positive integer, got "${value}"`,
-        )
-      }
-      return n
-    },
+    (value) => parseNumberOfWorkers(value),
     5,
   )
   .option(
@@ -223,6 +215,16 @@ program.parseAsync().catch((err: Error & { cause?: ErrorCode }) => {
   printError(buildErrorMessage(code, err.message))
   process.exit(code)
 })
+
+function parseNumberOfWorkers(value: string) {
+  const n = parseInt(value, 10)
+  if (isNaN(n) || n < 1) {
+    throw new InvalidArgumentError(
+      `--worker must be a positive integer, got "${value}"`,
+    )
+  }
+  return n
+}
 
 function parseDestinationArgs(destinationArgs: string[]) {
   let destStr: string
