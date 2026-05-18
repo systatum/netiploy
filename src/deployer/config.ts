@@ -23,7 +23,14 @@ export interface ClientConfig {
   endpoint?: string
   region?: string
   bucket: string
-  prefix: string
+
+  /**
+   * The folder prefix. If user ended the source path with /*
+   * then this will be null, indicating that users want to
+   * upload just the content of that folder, without any prefix
+   * (ie. without specifying the parent folder)
+   */
+  prefix: string | null
 }
 
 export type ResolvedClientConfig = Required<ClientConfig>
@@ -33,9 +40,15 @@ export function resolveConfig(args: DeployArgs): ResolvedClientConfig {
   const sourceDirName = basename(args.source)
   const resolvedSubfolder = resolveSubfolder(args.subfolder)
 
-  const prefix = [args.clientConfig.prefix, resolvedSubfolder, sourceDirName]
+  const rawPrefix = [args.clientConfig.prefix, resolvedSubfolder, sourceDirName]
     .filter(Boolean)
     .join("/")
+  const prefix =
+    rawPrefix === "*"
+      ? null // target directory is at the root-level
+      : rawPrefix.endsWith("/*") // target directory is in a subfolder
+        ? rawPrefix.replace("/*", "")
+        : rawPrefix
 
   let endpoint = args.clientConfig.endpoint
   let region = args.clientConfig.region

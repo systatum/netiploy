@@ -18,6 +18,20 @@ export interface RunnerContext {
   source: string
   clientConfig: ResolvedClientConfig
   workerCount?: number
+
+  /**
+   * When true and the source is a folder like `a/b/c`,
+   * upload only the folder contents:
+   *
+   *   c/file1 -> file1
+   *   c/file2 -> file2
+   *
+   * instead of preserving the top-level folder:
+   *
+   *   c/file1 -> c/file1
+   *   c/file2 -> c/file2
+   */
+  isOnlyUploadingContent?: boolean
 }
 
 export const DeployStrategy = {
@@ -65,10 +79,14 @@ function buildPublicUrl(config: ResolvedClientConfig): string {
 
 export async function deploy(args: DeployArgs): Promise<DeployResult> {
   const { source, strategy } = args
+  const isOnlyUploadingContent = source.endsWith("/*")
+  const sanitizedSourcePath = isOnlyUploadingContent
+    ? source.replace("/*", "")
+    : source
 
   // Confirm input directory exists
   try {
-    const info = await stat(source)
+    const info = await stat(sanitizedSourcePath)
     if (!info.isDirectory()) {
       return {
         ok: false,
@@ -101,7 +119,8 @@ export async function deploy(args: DeployArgs): Promise<DeployResult> {
     const runner = resolveStrategy(strategy)
     await runner.execute({
       client,
-      source,
+      isOnlyUploadingContent,
+      source: sanitizedSourcePath,
       clientConfig: resolvedConfig,
       workerCount: args.worker,
     })

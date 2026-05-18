@@ -1,6 +1,7 @@
 import { relative, sep } from "path"
 import { DeployRunner } from "."
 import type { RunnerContext } from ".."
+import { printInfo } from "../../utils"
 import { collectFilesPath, deleteAllObjects } from "../files"
 import type { UploadTask } from "../worker"
 
@@ -18,7 +19,7 @@ export class OverwriteStrategy extends DeployRunner {
     }
 
     const files = await collectFilesPath(ctx.source)
-
+    printInfo(`Collected ${files.length} files to upload`)
     const uploadTasks: UploadTask[] = files.map((absolutePath, id) => {
       const relativePath = relative(ctx.source, absolutePath)
       const s3RelPath = relativePath.split(sep).join("/")
