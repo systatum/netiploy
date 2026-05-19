@@ -350,6 +350,38 @@ describe("deploy", () => {
     ).toThrowError("String to hash must not contain spaces")
   })
 
+  test("specifying publicUrl", async () => {
+    let listed = await client.list({ prefix: "" })
+    let keys = (listed.contents ?? []).map((o) => o.key)
+    expect(keys).toBeEmpty() // ensure nothing in the folder
+
+    const result = await deploy({
+      worker: 3,
+      source: fixtureDir,
+      publicUrl: "https://coneto.systatum.com",
+      clientConfig: {
+        token: TEST_TOKEN,
+        endpoint: LOCALSTACK_ENDPOINT,
+        provider: ClientProvider.S3,
+        region: "us-east-1",
+        bucket: TEST_BUCKET,
+        prefix: "",
+      },
+      subfolder: SubfolderMode.None,
+      strategy: DeployStrategy.Overwrite,
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.publicUrl).toEqual("https://coneto.systatum.com/site")
+
+    // Verify the files actually exist in S3
+    listed = await client.list({ prefix: "" })
+    keys = (listed.contents ?? []).map((o) => o.key)
+    expect(keys).toContain("site/index.html")
+    expect(keys).toContain("site/style.css")
+    expect(keys).toContain("site/assets/logo.svg")
+  })
+
   test("returns FileNotFound error for non-existent source dir", async () => {
     const result = await deploy({
       worker: 2,

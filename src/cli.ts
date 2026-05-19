@@ -5,7 +5,7 @@ import { resolve } from "node:path"
 import { VERSION } from "."
 import { deploy, DeployStrategy } from "./deployer"
 import { ClientProvider, type ClientToken } from "./deployer/config"
-import { resolveSubfolder, SubfolderMode } from "./deployer/files"
+import { SubfolderMode } from "./deployer/files"
 import { buildErrorMessage, ErrorCode } from "./error"
 import {
   formatDurationMs,
@@ -62,7 +62,7 @@ program
   .option(
     "--subfolder <mode>",
     "Subfolder mode: none | generate | hash:<word> (default: none)",
-    (value) => parseSubfolderMode(value),
+    (value) => value,
     SubfolderMode.None,
   )
   .addOption(
@@ -88,7 +88,13 @@ program
       const { token, strategy, subfolder, worker, accountId, publicUrl } =
         options
 
-      source = resolve(source)
+      // resolve carefully if "/*" is provided
+      if (source.endsWith("/*")) {
+        source = `${resolve(source.replace("/*", ""))}/*`
+      } else {
+        source = resolve(source)
+      }
+
       const destStr: string = parseDestinationArgs(destinationArgs)
       const parts = destStr.split("/")
       if (parts.length < 2) {
@@ -154,6 +160,7 @@ program
         source: source,
         subfolder: subfolder as SubfolderMode,
         worker: worker,
+        publicUrl: publicUrl,
         clientConfig: {
           token: token ?? {
             accessKeyId: accessKeyId,
@@ -218,18 +225,6 @@ function parseNumberOfWorkers(value: string) {
     )
   }
   return n
-}
-
-function parseSubfolderMode(value: string) {
-  try {
-    return resolveSubfolder(value)
-  } catch (error) {
-    if (error instanceof Error) {
-      throw new InvalidArgumentError(
-        `--subfolder receive invalid value: ${error.message}`,
-      )
-    }
-  }
 }
 
 function parseDestinationArgs(destinationArgs: string[]) {

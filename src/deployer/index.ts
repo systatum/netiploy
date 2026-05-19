@@ -47,6 +47,12 @@ export interface DeployArgs {
   subfolder: SubfolderMode
   worker: number
   clientConfig: ClientConfig
+
+  /**
+   * Public URL of the bucket to be printed in place of
+   * the bucket's private URL
+   */
+  publicUrl?: string | null | undefined
 }
 
 export interface DeployResult {
@@ -68,6 +74,14 @@ function resolveStrategy(strategy: string): DeployRunner {
 function buildPublicUrl(config: ResolvedClientConfig): string {
   const { provider, bucket, prefix, endpoint } = config
   const pathSegment = prefix ? `/${prefix}` : ""
+
+  // if publicUrl is specified, then replace with the publicurl
+  const publicUrl = config.publicUrl?.endsWith("/")
+    ? config.publicUrl.slice(0, -1)
+    : config.publicUrl
+  if (publicUrl) {
+    return `${publicUrl}${pathSegment}`
+  }
 
   switch (provider) {
     case ClientProvider.R2:

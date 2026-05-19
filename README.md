@@ -58,7 +58,9 @@ As such, there is no need to manually supply the endpoint, for convenience!
 
 ---
 
-## How to Use
+## Usage / How to Use
+
+Basically:
 
 ```bash
 netiploy deploy <source-folder> [to] <provider>/<bucket>[/<prefix>] [options]
@@ -71,7 +73,39 @@ netiploy deploy dist to r2/my-bucket/web
 netiploy deploy dist r2/my-bucket/web
 ```
 
-Currently, the only supported provider is `r2` but we also plan to support `s3` (AWS instances) in the future.
+Had deloyment succeeded, the command above deploy `dist` to within the `web` subfolder of the `my-bucket` bucket. So the result URL of the deployment command:
+
+```bash
+R2_ACCOUNT_ID=something netiploy deploy example to r2/systatum-dev/coneto --token="keyid:secret"
+```
+
+Result in this URL: `https://systatum-dev.r2.dev/coneto/example`. As evident, the `example` folder is deployed within `coneto` (the subfolder) of the `systatum-dev` bucket.
+
+It is possible that you want just to copy the content of the `example` folder, without needing to create the `example` folder in the target bucket. In that case, instead of passing `example` as argument, pass `"example/*"`. So, the command below results in a URL like: `Public URL: https://systatum-dev.r2.dev/coneto/ad034ed3`.
+
+```bash
+R2_ACCOUNT_ID=something netiploy deploy example to r2/systatum-dev/coneto --subfolder=hash:localhostadam --token="x:y"
+```
+
+The `ad034ed3` subfolder is automatically created as result of the `--subfolder=hash` argument. Had `--subfolder==hash` is not provided/given, the content of the deloyment will be just at `https://systatum-dev.r2.dev/coneto`.
+
+Finally, it is possible to overwrite the printed public URL:
+
+```bash
+R2_ACCOUNT_ID=something netiploy deploy "example/*" to r2/systatum-dev/coneto --subfolder=hash:localhostadam --token="keyid:secret" --public-url="https://coneto.systatum.com"
+
+i Deploying /home/someuser/Documents/works/netiploy/example/* to r2/systatum-dev/coneto
+i Using strategy: overwrite
+✓ Clearing existing objects from systatum-dev/coneto/ad034ed3/... [1/1] (592ms)
+i Collected 1 files to upload
+✓ Uploading files... [1/1] (273ms)
+Deployment successful! (1.56s)
+  Public URL: https://coneto.systatum.com/coneto/ad034ed3
+```
+
+As can be seen, with `public-url`, `https://coneto.systatum.com` is printed instead of what normally would be `https://systatum-dev.r2.dev/coneto`.
+
+For detail of the arguments, please look at the table below.
 
 ### Options
 
@@ -82,6 +116,7 @@ Currently, the only supported provider is `r2` but we also plan to support `s3` 
 | `--worker <n>`       | `5`         | Number of concurrent upload workers.                     |
 | `--subfolder <mode>` | `none`      | See subfolder modes below.                               |
 | `--strategy <mode>`  | `overwrite` | Deploy strategy (`overwrite` deletes destination first). |
+| `--public-url <url>` | -           | Public URL of the bucket to be printed (for display)     |
 | `-v, --version`      | -           | Print `Systatum Netiploy VERSION` and exit.              |
 | `--help`             | -           | Show help text and exit.                                 |
 
