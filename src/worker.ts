@@ -1,5 +1,16 @@
 import { S3Client } from "bun"
 
+// DO NOT MOVE THIS FILE NESTED WITHIN ANY FOLDER, LET IT BE
+// IN THE SRC FOLDER DIRECTORY, OTHERWISE THERE WILL BE ERROR
+// LIKE:
+//
+// X ERR100. Error: Worker crashed: BuildMessage: ModuleNotFound
+// resolving "/home/runner/work/netiploy/netiploy/src/deployer/worker.ts"
+// (entry point)
+//
+// THIS CODE OF THE WORKER IS USED TO UPLOAD EACH INDIVIDUAL
+// FILE TO THE CLOUD
+
 export interface UploadWorkerConfig {
   endpoint: string
   region: string

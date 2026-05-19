@@ -1,7 +1,7 @@
 import type { RunnerContext } from ".."
 import { createSpinner } from "../../utils"
+import type { UploadTask, UploadWorkerConfig } from "../../worker"
 import { UploadWorker } from "../UploadWorker"
-import type { UploadTask, UploadWorkerConfig } from "../worker"
 
 export abstract class DeployRunner {
   abstract execute(ctx: RunnerContext): Promise<void>

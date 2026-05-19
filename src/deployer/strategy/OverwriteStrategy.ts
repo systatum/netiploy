@@ -2,8 +2,8 @@ import { relative, sep } from "path"
 import { DeployRunner } from "."
 import type { RunnerContext } from ".."
 import { printInfo } from "../../utils"
+import type { UploadTask } from "../../worker"
 import { collectFilesPath, deleteAllObjects } from "../files"
-import type { UploadTask } from "../worker"
 
 export class OverwriteStrategy extends DeployRunner {
   async execute(ctx: RunnerContext): Promise<void> {
