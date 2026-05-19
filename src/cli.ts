@@ -2,31 +2,27 @@
 
 import { InvalidArgumentError, Option, program } from "commander"
 import { resolve } from "node:path"
-import {
-  deploy,
-  DeployStrategy,
-  SubfolderMode,
-  ErrorCode,
-  ClientProvider,
-  type ClientToken,
-} from "./core"
 import { VERSION } from "."
-import { buildErrorMessage } from "./error"
+import { deploy, DeployStrategy } from "./deployer"
+import { ClientProvider, type ClientToken } from "./deployer/config"
+import { SubfolderMode } from "./deployer/files"
+import { buildErrorMessage, ErrorCode } from "./error"
 import {
+  formatDurationMs,
   printBanner,
+  printError,
+  printInfo,
   printMeta,
   printSummary,
-  formatDurationMs,
-  printInfo,
-  printError,
 } from "./utils"
 
 interface DeployOptions {
   token?: ClientToken
   accountId?: string
   worker: number
-  subfolder: SubfolderMode | string
+  subfolder: SubfolderMode
   strategy: DeployStrategy
+  publicUrl?: string
 }
 
 program
@@ -50,18 +46,7 @@ program
   .option(
     "--token <token>",
     "Auth token in accessKeyId:secretAccessKey format",
-    (value) => {
-      const colonIdx = value.indexOf(":")
-      if (colonIdx === -1) {
-        throw new InvalidArgumentError(
-          "Token must be in format 'accessKeyId:secretAccessKey'",
-        )
-      }
-      return <ClientToken>{
-        accessKeyId: value.slice(0, colonIdx),
-        secretAccessKey: value.slice(colonIdx + 1),
-      }
-    },
+    (value) => parseAPIToken(value),
   )
   .option(
     "--account-id <id>",
@@ -71,37 +56,13 @@ program
   .option(
     "--worker <n>",
     "Number of concurrent upload workers (default: 5)",
-    (value) => {
-      const n = parseInt(value, 10)
-      if (isNaN(n) || n < 1) {
-        throw new InvalidArgumentError(
-          `--worker must be a positive integer, got "${value}"`,
-        )
-      }
-      return n
-    },
+    (value) => parseNumberOfWorkers(value),
     5,
   )
   .option(
     "--subfolder <mode>",
     "Subfolder mode: none | generate | hash:<word> (default: none)",
-    (value) => {
-      if (value === SubfolderMode.None || value === SubfolderMode.Generate) {
-        return value
-      }
-      if (value.startsWith("hash:")) {
-        const word = value.slice(5)
-        if (word.includes(" ")) {
-          throw new InvalidArgumentError(
-            `--subfolder hash word must not contain spaces: "${word}"`,
-          )
-        }
-        return value
-      }
-      throw new InvalidArgumentError(
-        `Invalid --subfolder value "${value}". Expected: none | generate | hash:<word>`,
-      )
-    },
+    (value) => value,
     SubfolderMode.None,
   )
   .addOption(
@@ -112,32 +73,29 @@ program
       .choices(Object.values(DeployStrategy))
       .default(DeployStrategy.Overwrite),
   )
+  .addOption(
+    new Option(
+      "--public-url <url>",
+      "Public URL of the bucket to be printed in place of the bucket's private URL",
+    ).default(""),
+  )
   .action(
     async (
       source: string,
       destinationArgs: string[],
       options: DeployOptions,
     ) => {
-      const { token, strategy, subfolder, worker, accountId } = options
+      const { token, strategy, subfolder, worker, accountId, publicUrl } =
+        options
 
-      source = resolve(source)
-
-      let destStr: string
-      if (destinationArgs.length === 2 && destinationArgs[0] === "to") {
-        destStr = destinationArgs[1]!
-      } else if (destinationArgs.length === 1 && destinationArgs[0] !== "to") {
-        destStr = destinationArgs[0]!
-      } else if (destinationArgs.length === 1) {
-        throw new InvalidArgumentError(
-          `Missing destination. Usage: netiploy deploy <source> [to] <provider>/<bucket>[/<prefix>]`,
-        )
+      // resolve carefully if "/*" is provided
+      if (source.endsWith("/*")) {
+        source = `${resolve(source.replace("/*", ""))}/*`
       } else {
-        throw new InvalidArgumentError(
-          `Unexpected arguments: ${destinationArgs.join(" ")}. ` +
-            `Usage: netiploy deploy <source> [to] <provider>/<bucket>[/<prefix>]`,
-        )
+        source = resolve(source)
       }
 
+      const destStr: string = parseDestinationArgs(destinationArgs)
       const parts = destStr.split("/")
       if (parts.length < 2) {
         throw new InvalidArgumentError(
@@ -202,6 +160,7 @@ program
         source: source,
         subfolder: subfolder as SubfolderMode,
         worker: worker,
+        publicUrl: publicUrl,
         clientConfig: {
           token: token ?? {
             accessKeyId: accessKeyId,
@@ -244,3 +203,47 @@ program.parseAsync().catch((err: Error & { cause?: ErrorCode }) => {
   printError(buildErrorMessage(code, err.message))
   process.exit(code)
 })
+
+function parseAPIToken(value: string) {
+  const colonIdx = value.indexOf(":")
+  if (colonIdx === -1) {
+    throw new InvalidArgumentError(
+      "Token must be in format 'accessKeyId:secretAccessKey'",
+    )
+  }
+  return <ClientToken>{
+    accessKeyId: value.slice(0, colonIdx),
+    secretAccessKey: value.slice(colonIdx + 1),
+  }
+}
+
+function parseNumberOfWorkers(value: string) {
+  const n = parseInt(value, 10)
+  if (isNaN(n) || n < 1) {
+    throw new InvalidArgumentError(
+      `--worker must be a positive integer, got "${value}"`,
+    )
+  }
+  return n
+}
+
+function parseDestinationArgs(destinationArgs: string[]) {
+  let destStr: string
+
+  if (destinationArgs.length === 2 && destinationArgs[0] === "to") {
+    destStr = destinationArgs[1]!
+  } else if (destinationArgs.length === 1 && destinationArgs[0] !== "to") {
+    destStr = destinationArgs[0]!
+  } else if (destinationArgs.length === 1) {
+    throw new InvalidArgumentError(
+      `Missing destination. Usage: netiploy deploy <source> [to] <provider>/<bucket>[/<prefix>]`,
+    )
+  } else {
+    throw new InvalidArgumentError(
+      `Unexpected arguments: ${destinationArgs.join(" ")}. ` +
+        `Usage: netiploy deploy <source> [to] <provider>/<bucket>[/<prefix>]`,
+    )
+  }
+
+  return destStr
+}
