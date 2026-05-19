@@ -21,6 +21,8 @@
   "scripts": {
     "clean": "make clean",
     "test": "make test",
+    "test:unit": "make test-unit",
+    "test:e2e": "make test-e2e",
     "build": "make build",
     "build:bin:linux:x64": "make build-bin-linux-x64",
     "build:bin:linux:arm": "make build-bin-linux-arm64",

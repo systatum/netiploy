@@ -223,7 +223,19 @@ before forwarding the request to R2, which makes SPAs work correctly.
 ## How to Test
 
 ```bash
-go test ./...
+make test-unit
+```
+
+Run the LocalStack-backed E2E deploy tests:
+
+```bash
+make test-e2e
+```
+
+Run the complete test suite:
+
+```bash
+make test
 ```
 
 ## How to Build

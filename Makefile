@@ -5,7 +5,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 GO ?= go
 GO_ENV := GOCACHE=$(CURDIR)/.cache/go-build GOMODCACHE=$(CURDIR)/.cache/go-mod
 
-.PHONY: all clean test build build-bin-all \
+.PHONY: all clean test test-unit test-e2e build build-bin-all \
 	build-bin-linux-x64 build-bin-linux-arm64 \
 	build-bin-mac-x64 build-bin-mac-arm64 \
 	build-bin-win-x64 build-bin-win-arm64 checksums
@@ -15,8 +15,16 @@ all: build-bin-all
 clean:
 	rm -rf $(BUILD_DIR)
 
-test:
+test: test-unit test-e2e
+
+test-unit:
 	$(GO_ENV) $(GO) test ./...
+
+test-e2e:
+	@set -e; \
+	docker compose up -d; \
+	trap 'docker compose down' EXIT; \
+	NETIPLOY_E2E=1 $(GO_ENV) $(GO) test -count=1 -tags=e2e ./internal/netiploy
 
 build:
 	mkdir -p $(BUILD_DIR)
