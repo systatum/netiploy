@@ -1,6 +1,6 @@
 {
   "name": "@systatum/netiploy",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Like-Netlify-but-your-own-storage deployer",
   "type": "module",
   "main": "./build/index.cjs",
