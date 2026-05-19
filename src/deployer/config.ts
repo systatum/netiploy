@@ -31,6 +31,12 @@ export interface ClientConfig {
    * (ie. without specifying the parent folder)
    */
   prefix: string | null
+
+  /**
+   * Public URL of the bucket to be printed in place of
+   * the bucket's private URL
+   */
+  publicUrl?: string | null | undefined
 }
 
 export type ResolvedClientConfig = Required<ClientConfig>
@@ -70,9 +76,10 @@ export function resolveConfig(args: DeployArgs): ResolvedClientConfig {
 
   return {
     ...args.clientConfig,
+    publicUrl: args.publicUrl ?? null,
     accountId,
     endpoint,
     region,
     prefix,
-  }
+  } satisfies ResolvedClientConfig
 }

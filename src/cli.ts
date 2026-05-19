@@ -22,6 +22,7 @@ interface DeployOptions {
   worker: number
   subfolder: SubfolderMode
   strategy: DeployStrategy
+  publicUrl?: string
 }
 
 program
@@ -72,13 +73,20 @@ program
       .choices(Object.values(DeployStrategy))
       .default(DeployStrategy.Overwrite),
   )
+  .addOption(
+    new Option(
+      "--public-url <url>",
+      "Public URL of the bucket to be printed in place of the bucket's private URL",
+    ).default(""),
+  )
   .action(
     async (
       source: string,
       destinationArgs: string[],
       options: DeployOptions,
     ) => {
-      const { token, strategy, subfolder, worker, accountId } = options
+      const { token, strategy, subfolder, worker, accountId, publicUrl } =
+        options
 
       source = resolve(source)
       const destStr: string = parseDestinationArgs(destinationArgs)
