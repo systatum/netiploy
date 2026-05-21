@@ -1,19 +1,12 @@
 # Netiploy
 
-**Netiploy** is an open-source Bun-optimized CLI tool for deploying static files to Cloudflare R2 (or any S3-compatible storage) without paying for Netlify.
+**Netiploy** is an open-source Go CLI tool for deploying static files to Cloudflare R2 (or any S3-compatible storage) without paying for Netlify.
 
 ## Installation
 
 ```bash
-bun install
-
-# Run directly with Bun (no global install required)
-bun run src/cli.ts deploy ...
-
-# Or link globally during local development
-bun run build
-bun link
-netiploy deploy ...
+make build
+./build/netiploy deploy ...
 ```
 
 ## Setup
@@ -50,7 +43,7 @@ Netiploy detects the endpoint automatically based on the given provider. So, if 
 
 ```bash
 # r2 → cloudflare R2.
-# for this to work, you still need `R2_ACCOUNT_ID` env var or `--access-token` argument to be present.
+# for this to work, you still need `R2_ACCOUNT_ID` env var or `--account-id` argument to be present.
 https://<account_id>.r2.cloudflarestorage.com` (region: `auto`)
 ```
 
@@ -230,44 +223,49 @@ before forwarding the request to R2, which makes SPAs work correctly.
 ## How to Test
 
 ```bash
-# Run E2E tests (requires Docker)
-docker compose up -d          # start localstack
-bun test tests/e2e.test.ts    # run E2E suite
-docker compose down           # stop localstack
+make test-unit
+```
+
+Run the LocalStack-backed E2E deploy tests:
+
+```bash
+make test-e2e
+```
+
+Run the complete test suite:
+
+```bash
+make test
+```
+
+## How to Build
+
+```bash
+# Current platform
+make build
+
+# Linux, macOS, and Windows binaries matching the old build:bin:all output names
+make build-bin-all
 ```
 
 ## How to Publish
 
-**NOTE:** Make sure to bump the `version` field in `package.json` and the `VERSION` constant in `src/index.ts`.
+**NOTE:** Make sure to bump the `version` field in `package.json` and the
+default `version` variable in `cmd/netiploy/main.go`.
 
 ### GitHub Releases
 
 1. Run the build command for outputting binaries.
 
 ```
-bun run build:bin:all
+make build-bin-all
 ```
 
 2. Upload to GitHub Releases with the approriate tag.
 
-### GitHub Packages
-
-1. For CLI-tool build.
-
-```bash
-NPM_CONFIG_TOKEN=<your_github_token> bun run release:gh
-```
-
-2. For library build.
-
-```bash
-bun run build:lib
-# publish manually (possibly full support in the future)
-```
-
 ## Acknowledgements
 
-The XXH32 implementation bundled in `src/xxh32.ts` is adapted from
+The XXH32 implementation bundled in `internal/netiploy/xxh32.go` is adapted from
 [cgiosy/xxh32](https://github.com/cgiosy/xxh32): a fast, zero-dependency
 JavaScript implementation of the XXH32 hash algorithm by Yushin Cho (cgiosy).
 Full credit and thanks to the original author.
