@@ -1,7 +1,6 @@
 APP := netiploy
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo dev)
 BUILD_DIR := build
-LDFLAGS := -s -w -X main.version=$(VERSION)
+LDFLAGS := -s -w
 GO ?= go
 GO_ENV := GOCACHE=$(CURDIR)/.cache/go-build GOMODCACHE=$(CURDIR)/.cache/go-mod
 

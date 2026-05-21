@@ -251,8 +251,7 @@ make build-bin-all
 ## How to Publish
 
 **NOTE:** Make sure to bump the `version` field in `package.json` and the
-default `version` variable in `cmd/netiploy/main.go`. Release builds also set
-the binary version from the Git tag via `-ldflags`.
+default `version` variable in `cmd/netiploy/main.go`.
 
 ### GitHub Releases
 
